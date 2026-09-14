@@ -34,28 +34,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.bathealth.app.ui.theme.AmbientRed
-import com.bathealth.app.ui.theme.AmbientWhite
-import com.bathealth.app.ui.theme.GlassBorder
-import com.bathealth.app.ui.theme.GlassHighlight
-import com.bathealth.app.ui.theme.GlassShadow
-import com.bathealth.app.ui.theme.GlassSurface
 import com.bathealth.app.ui.theme.GeistMono
-import com.bathealth.app.ui.theme.GlowRed
-import com.bathealth.app.ui.theme.GlowWhite
+import com.bathealth.app.ui.theme.LucentBorder
+import com.bathealth.app.ui.theme.LucentSurface
 import com.bathealth.app.ui.theme.LucentSurfaceStrong
 import com.bathealth.app.ui.theme.Muted
 import com.bathealth.app.ui.theme.NothingBlack
 import com.bathealth.app.ui.theme.NothingBlackSoft
 import com.bathealth.app.ui.theme.NothingRed
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.hazeEffect
 
 @Composable
 fun MicroLabel(text: String, color: Color = Color.White) {
@@ -63,67 +57,12 @@ fun MicroLabel(text: String, color: Color = Color.White) {
 }
 
 @Composable
-fun AnimatedAmbientGlow() {
-    val alpha = remember { Animatable(0.6f) }
-    LaunchedEffect(Unit) {
-        alpha.animateTo(
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 4000, easing = androidx.compose.animation.core.LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-        )
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(AmbientRed.copy(alpha = alpha.value), Color.Transparent),
-                    center = Offset(950f, -80f),
-                    radius = 1100f,
-                ),
-            ),
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(AmbientWhite.copy(alpha = alpha.value), Color.Transparent),
-                    center = Offset(120f, 1900f),
-                    radius = 1300f,
-                ),
-            ),
-    )
-}
-
-@Composable
-fun DynamicGradient(level: Int) {
-    val redIntensity = (level / 100f).coerceIn(0f, 1f)
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        NothingBlack,
-                        NothingBlackSoft,
-                        NothingBlack.copy(
-                            red = redIntensity * 0.05f,
-                            green = 0f,
-                            blue = 0f,
-                        ),
-                    ),
-                ),
-            ),
-    )
-}
-
-@Composable
 fun FluentBackground(level: Int) {
-    DynamicGradient(level)
-    AnimatedAmbientGlow()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NothingBlack),
+    )
 }
 
 @Composable
@@ -132,41 +71,10 @@ fun GlassCard(content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(GlassSurface)
-            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp))
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            GlassHighlight.copy(alpha = 0.3f),
-                            Color.Transparent,
-                        ),
-                        center = Offset(size.width / 2, 0f),
-                        radius = size.width * 0.8f,
-                    ),
-                )
-            }
-            .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(24.dp),
-            )
+            .background(NothingBlackSoft)
+            .border(1.dp, LucentBorder, RoundedCornerShape(24.dp))
             .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            GlassHighlight,
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
         content()
     }
 }
@@ -177,41 +85,10 @@ fun GlassCardVariant(content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(GlassSurface)
-            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp))
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            GlassHighlight.copy(alpha = 0.4f),
-                            Color.Transparent,
-                        ),
-                        center = Offset(size.width / 2, 0f),
-                        radius = size.width * 0.9f,
-                    ),
-                )
-            }
-            .shadow(
-                elevation = 12.dp,
-                shape = RoundedCornerShape(24.dp),
-            )
+            .background(NothingBlackSoft)
+            .border(1.dp, LucentBorder, RoundedCornerShape(24.dp))
             .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            GlassHighlight,
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
         content()
     }
 }
@@ -221,17 +98,21 @@ fun FluentBottomBar(
     currentRoute: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    hazeState: HazeState,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(28.dp))
-            .background(LucentSurfaceStrong)
-            .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
-            .shadow(
-                elevation = 12.dp,
-                shape = RoundedCornerShape(28.dp),
+            .hazeEffect(
+                state = hazeState,
+                style = HazeStyle(
+                    backgroundColor = Color(0x990A0A0B),
+                    blurRadius = 24.dp,
+                    tints = emptyList(),
+                ),
             )
+            .border(1.dp, LucentBorder, RoundedCornerShape(28.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Row(
@@ -264,7 +145,7 @@ private fun FluentTab(label: String, selected: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .clickable(role = Role.Tab, onClick = onClick)
-            .background(if (selected) GlassSurface else Color.Transparent)
+            .background(if (selected) LucentSurface else Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -338,32 +219,12 @@ fun GlassHeader() {
 
 @Composable
 fun GlassChargePill(charging: Boolean, source: String) {
-    val bg = if (charging) NothingRed else GlassSurface
+    val bg = if (charging) NothingRed else LucentSurface
     val fg = Color.White
-    val glowAlpha by animateFloatAsState(
-        targetValue = if (charging) 0.3f else 0f,
-        animationSpec = tween(durationMillis = 300),
-        label = "glow",
-    )
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(bg)
-            .border(1.dp, GlassBorder, RoundedCornerShape(50))
-            .drawBehind {
-                if (charging) {
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                NothingRed.copy(alpha = glowAlpha),
-                                Color.Transparent,
-                            ),
-                            center = Offset(size.width / 2, size.height / 2),
-                            radius = size.width * 0.6f,
-                        ),
-                    )
-                }
-            }
             .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -401,13 +262,6 @@ fun GlassGlyphDots(level: Int, cells: Int = 20) {
                 radius = r,
                 center = Offset(cx, size.height / 2),
             )
-            if (isLit) {
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.3f),
-                    radius = r * 1.5f,
-                    center = Offset(cx, size.height / 2),
-                )
-            }
         }
     }
 }
@@ -435,7 +289,7 @@ fun GlassTelemetryRow(label: String, value: String, last: Boolean = false) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(GlassBorder),
+                .background(Color.White.copy(alpha = 0.08f)),
         )
     }
 }

@@ -43,11 +43,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -77,6 +76,8 @@ import com.bathealth.app.ui.theme.GeistMono
 import com.bathealth.app.ui.theme.Muted
 import com.bathealth.app.ui.theme.NothingBlack
 import com.bathealth.app.ui.theme.NothingRed
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -259,6 +260,20 @@ fun BatteryScreen() {
         )
     }
     var updatedAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var tick by remember { mutableLongStateOf(0L) }
+
+    // 1s refresh: broadcasts only fire on actual battery change, so poll the
+    // sticky intent + fuel-gauge properties for live temp/voltage/current.
+    LaunchedEffect(context) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            val current = ContextCompat.registerReceiver(context, null, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            val base = current?.toBatteryInfo() ?: info
+            info = context.enrichWithHealthProps(base)
+            updatedAt = System.currentTimeMillis()
+            tick++
+        }
+    }
 
     DisposableEffect(context) {
         val receiver = object : BroadcastReceiver() {
@@ -279,6 +294,7 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route ?: "home"
+    val hazeState = rememberHazeState()
 
     // Overlay shell: pages fill the screen down to the gesture edge so scroll
     // content visibly passes behind the floating frosted bar.
@@ -297,12 +313,12 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
         ) {
             GlassHeader()
 
-            Spacer(Modifier.height(16.dp))
-
             NavHost(
                 navController = nav,
                 startDestination = "home",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .hazeSource(state = hazeState),
             ) {
                 composable("home") { HomeContent(info) }
                 composable("charge") { ChargeContent(info) }
@@ -324,6 +340,7 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
             Spacer(Modifier.height(12.dp))
             FluentBottomBar(
                 currentRoute = route,
+                hazeState = hazeState,
                 onSelect = { dest ->
                     if (dest != route) {
                         nav.navigate(dest) {
@@ -494,7 +511,7 @@ private fun HealthContent(info: BatteryInfo) {
 
 // ---------------------------------------------------------------------------
 // CHARGE: live electrical stats — watts hero, volts/amps, charger limits.
-// Current re-reads every 2s while this tab is visible (scoped poll) plus
+// Current re-reads every 1s while this tab is visible (scoped poll) plus
 // system broadcast updates from the shared BatteryScreen state.
 // ---------------------------------------------------------------------------
 @Composable
@@ -503,7 +520,7 @@ private fun ChargeContent(info: BatteryInfo) {
     var liveMa by remember(info.currentMa) { mutableStateOf(info.currentMa) }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(2000)
+            kotlinx.coroutines.delay(1000)
             context.readCurrentMa(average = false)?.let { liveMa = it }
         }
     }
@@ -589,7 +606,7 @@ private fun ChargeContent(info: BatteryInfo) {
 
         Spacer(Modifier.height(16.dp))
         MicroLabel(
-            if (info.charging) "LIVE FROM FUEL GAUGE — 2S REFRESH" else "PLUG IN TO MEASURE CHARGE RATE",
+            if (info.charging) "LIVE FROM FUEL GAUGE — 1S REFRESH" else "PLUG IN TO MEASURE CHARGE RATE",
             color = Muted,
         )
         FooterClearance()
@@ -705,13 +722,13 @@ private fun GlassHeaderPreview() {
         }
     }
 }
-
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
 private fun FluentBottomBarPreview() {
+    val hazeState = rememberHazeState()
     BatHealthTheme {
         Surface(color = NothingBlack) {
-            FluentBottomBar(currentRoute = "home", onSelect = {})
+            FluentBottomBar(currentRoute = "home", hazeState = hazeState, onSelect = {})
         }
     }
 }
