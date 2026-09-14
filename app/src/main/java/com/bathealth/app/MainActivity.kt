@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -30,14 +31,23 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -52,21 +62,21 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.bathealth.app.ui.components.ChargePill
-import com.bathealth.app.ui.components.DotMatrixHeader
-import com.bathealth.app.ui.components.GlyphDots
-import com.bathealth.app.ui.components.LucentBackground
-import com.bathealth.app.ui.components.LucentBottomBar
-import com.bathealth.app.ui.components.LucentCard
-import com.bathealth.app.ui.components.MicroLabel
+import com.bathealth.app.ui.components.FluentBackground
+import com.bathealth.app.ui.components.GlassCard
+import com.bathealth.app.ui.components.GlassCardVariant
+import com.bathealth.app.ui.components.GlassChargePill
+import com.bathealth.app.ui.components.GlassGlyphDots
+import com.bathealth.app.ui.components.GlassHeader
+import com.bathealth.app.ui.components.GlassTelemetryRow
 import com.bathealth.app.ui.components.Phone3Render
-import com.bathealth.app.ui.components.TelemetryRow
+import com.bathealth.app.ui.components.FluentBottomBar
+import com.bathealth.app.ui.components.MicroLabel
 import com.bathealth.app.ui.theme.BatHealthTheme
 import com.bathealth.app.ui.theme.GeistMono
 import com.bathealth.app.ui.theme.Muted
 import com.bathealth.app.ui.theme.NothingBlack
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
+import com.bathealth.app.ui.theme.NothingRed
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -87,9 +97,8 @@ import java.util.Locale
 //   "max_charging_current" (µA) / "max_charging_voltage" (µV). @hide in the
 //   SDK, so literal keys are used; absent on some OEMs → null.
 // - chargeTimeMs: computeChargeTimeRemaining() (ms to full, -1 → null),
-//   SDK-guarded for minSdk 26.
 // powerW is derived: voltageV × currentMa / 1000 (signed, W).
-// ---------------------------------------------------------------------------
+@Stable
 data class BatteryInfo(
     val level: Int = -1,
     val charging: Boolean = false,
@@ -228,7 +237,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BatHealthTheme {
-                LucentBackground()
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Transparent,
@@ -271,7 +279,6 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route ?: "home"
-    val hazeState = rememberHazeState()
 
     // Overlay shell: pages fill the screen down to the gesture edge so scroll
     // content visibly passes behind the floating frosted bar.
@@ -281,22 +288,21 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
+        FluentBackground(level = info.level.coerceIn(0, 100))
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp)
                 .padding(top = 24.dp),
         ) {
-            DotMatrixHeader()
+            GlassHeader()
 
             Spacer(Modifier.height(16.dp))
 
             NavHost(
                 navController = nav,
                 startDestination = "home",
-                modifier = Modifier
-                    .weight(1f)
-                    .hazeSource(state = hazeState),
+                modifier = Modifier.weight(1f),
             ) {
                 composable("home") { HomeContent(info) }
                 composable("charge") { ChargeContent(info) }
@@ -316,7 +322,7 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
                 color = Muted,
             )
             Spacer(Modifier.height(12.dp))
-            LucentBottomBar(
+            FluentBottomBar(
                 currentRoute = route,
                 onSelect = { dest ->
                     if (dest != route) {
@@ -326,7 +332,6 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
                         }
                     }
                 },
-                hazeState = hazeState,
             )
         }
     }
@@ -340,9 +345,13 @@ private fun FooterClearance() {
 
 // ---------------------------------------------------------------------------
 // HOME: live overview — hero %, charging pill, Glyph dots.
-// ---------------------------------------------------------------------------
 @Composable
 private fun HomeContent(info: BatteryInfo) {
+    val animatedLevel by animateIntAsState(
+        targetValue = info.level.coerceIn(0, 100),
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+        label = "level",
+    )
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -351,38 +360,40 @@ private fun HomeContent(info: BatteryInfo) {
         Spacer(Modifier.height(24.dp))
         MicroLabel("BATTERY")
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = if (info.level >= 0) "${info.level}%" else "--%",
-            style = MaterialTheme.typography.displayLarge,
-            color = Color.White,
-        )
+        GlassCardVariant {
+            Text(
+                text = if (animatedLevel >= 0) "${animatedLevel}%" else "--%",
+                style = MaterialTheme.typography.displayLarge,
+                color = Color.White,
+            )
+        }
         Spacer(Modifier.height(12.dp))
-        ChargePill(charging = info.charging, source = info.source)
+        GlassChargePill(charging = info.charging, source = info.source)
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(32.dp))
         // Glyph Matrix homage: segmented dot progress, 20 cells.
-        GlyphDots(level = info.level.coerceIn(0, 100))
+        GlassGlyphDots(level = info.level.coerceIn(0, 100))
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(32.dp))
         // Device card: Phone (3) vector render + Build identity.
         DeviceCard(level = info.level.coerceIn(0, 100))
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(32.dp))
         // Lucent translucent card: frosted layer + hairline border.
-        LucentCard {
-            TelemetryRow("STATUS", if (info.charging) "CHARGING" else "DISCHARGING")
-            TelemetryRow(
+        GlassCard {
+            GlassTelemetryRow("STATUS", if (info.charging) "CHARGING" else "DISCHARGING")
+            GlassTelemetryRow(
                 "TEMP",
                 if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
             )
-            TelemetryRow(
+            GlassTelemetryRow(
                 "VOLTAGE",
                 if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
                 last = true,
             )
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(32.dp))
         // Second DeviceCard at the page end: stays reachable above the
         // floating bar and shows content drifting behind the frost.
         DeviceCard(level = info.level.coerceIn(0, 100))
@@ -397,7 +408,13 @@ private fun HomeContent(info: BatteryInfo) {
 @Composable
 private fun HealthContent(info: BatteryInfo) {
     val hasSoh = info.stateOfHealth != null
-    val heroText = if (hasSoh) "${info.stateOfHealth}%" else info.fullCapMah?.let { "≈$it" } ?: "—"
+    val heroValue = if (hasSoh) info.stateOfHealth else info.fullCapMah ?: -1
+    val animatedHero by animateIntAsState(
+        targetValue = heroValue,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+        label = "hero",
+    )
+    val heroText = if (hasSoh) "${animatedHero}%" else if (info.fullCapMah != null) "≈$animatedHero" else "—"
     val heroSuffix = if (hasSoh) "" else if (info.fullCapMah != null) " mAh" else ""
     val caption = if (hasSoh) "EST FULL CHARGE VS RATED" else "EST FULL CHARGE FROM COUNTER"
     val cyclesText = info.cycleCount?.toString() ?: "—"
@@ -408,51 +425,62 @@ private fun HealthContent(info: BatteryInfo) {
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        MicroLabel(if (hasSoh) "STATE OF HEALTH" else "FULL CHARGE CAPACITY")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MicroLabel(if (hasSoh) "STATE OF HEALTH" else "FULL CHARGE CAPACITY")
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(if (hasSoh) Color(0xFF4CAF50) else Muted),
+            )
+        }
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = buildAnnotatedString {
-                append(heroText)
-                if (heroSuffix.isNotEmpty()) {
-                    withStyle(
-                        style = SpanStyle(
-                            fontSize = 24.sp,
-                            letterSpacing = 0.sp,
-                            color = Muted,
-                        ),
-                    ) {
-                        append(heroSuffix)
+        GlassCardVariant {
+            Text(
+                text = buildAnnotatedString {
+                    append(heroText)
+                    if (heroSuffix.isNotEmpty()) {
+                        withStyle(
+                            style = SpanStyle(
+                                fontSize = 24.sp,
+                                letterSpacing = 0.sp,
+                                color = Muted,
+                            ),
+                        ) {
+                            append(heroSuffix)
+                        }
+                    } else {
+                        append("%")
                     }
-                } else {
-                    append("%")
-                }
-            },
-            style = TextStyle(
-                fontFamily = GeistMono,
-                fontWeight = FontWeight.Medium,
-                fontSize = 64.sp,
-                lineHeight = 64.sp,
-                letterSpacing = (-1).sp,
-            ),
-            color = Color.White,
-        )
+                },
+                style = TextStyle(
+                    fontFamily = GeistMono,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 64.sp,
+                    lineHeight = 64.sp,
+                    letterSpacing = (-1).sp,
+                ),
+                color = Color.White,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         MicroLabel(caption, color = Muted)
 
-        Spacer(Modifier.height(28.dp))
-        LucentCard {
-            TelemetryRow("CONDITION", info.health)
-            TelemetryRow("CYCLES", cyclesText)
-            TelemetryRow("FULL CAP", fullCapText)
-            TelemetryRow(
+        Spacer(Modifier.height(32.dp))
+        GlassCardVariant {
+            GlassTelemetryRow("CONDITION", info.health)
+            GlassTelemetryRow("CYCLES", cyclesText)
+            GlassTelemetryRow("FULL CAP", fullCapText)
+            GlassTelemetryRow(
                 "TEMP",
                 if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
             )
-            TelemetryRow(
+            GlassTelemetryRow(
                 "VOLTAGE",
                 if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
             )
-            TelemetryRow("CELL", info.technology, last = true)
+            GlassTelemetryRow("CELL", info.technology, last = true)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -482,7 +510,12 @@ private fun ChargeContent(info: BatteryInfo) {
 
     val ma = liveMa ?: info.avgCurrentMa
     val watts = if (!info.voltageV.isNaN() && ma != null) info.voltageV * ma / 1000f else null
-    val hero = watts?.let { "%+.1f".format(Locale.getDefault(), it) } ?: "—"
+    val animatedWatts by animateFloatAsState(
+        targetValue = watts ?: 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+        label = "watts",
+    )
+    val hero = if (watts != null) "%+.1f".format(Locale.getDefault(), animatedWatts) else "—"
     val currentText = ma?.let { "%+.0f mA".format(Locale.getDefault(), it) } ?: "—"
     val maxMaText = info.maxCurrentMa?.let { "%.0f mA".format(Locale.getDefault(), it) } ?: "—"
     val maxVText = info.maxVoltageV?.let { "%.1f V".format(Locale.getDefault(), it) } ?: "—"
@@ -494,49 +527,60 @@ private fun ChargeContent(info: BatteryInfo) {
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        MicroLabel("POWER NOW")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MicroLabel("POWER NOW")
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(NothingRed),
+            )
+        }
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = buildAnnotatedString {
-                append(hero)
-                if (watts != null) {
-                    withStyle(
-                        style = SpanStyle(
-                            fontSize = 24.sp,
-                            letterSpacing = 0.sp,
-                            color = Muted,
-                        ),
-                    ) {
-                        append(" W")
+        GlassCardVariant {
+            Text(
+                text = buildAnnotatedString {
+                    append(hero)
+                    if (watts != null) {
+                        withStyle(
+                            style = SpanStyle(
+                                fontSize = 24.sp,
+                                letterSpacing = 0.sp,
+                                color = Muted,
+                            ),
+                        ) {
+                            append(" W")
+                        }
                     }
-                }
-            },
-            style = TextStyle(
-                fontFamily = GeistMono,
-                fontWeight = FontWeight.Medium,
-                fontSize = 64.sp,
-                lineHeight = 64.sp,
-                letterSpacing = (-1).sp,
-            ),
-            color = Color.White,
-        )
+                },
+                style = TextStyle(
+                    fontFamily = GeistMono,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 64.sp,
+                    lineHeight = 64.sp,
+                    letterSpacing = (-1).sp,
+                ),
+                color = Color.White,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         MicroLabel("+ IN / − OUT OF BATTERY", color = Muted)
         Spacer(Modifier.height(12.dp))
-        ChargePill(charging = info.charging, source = info.source)
+        GlassChargePill(charging = info.charging, source = info.source)
 
-        Spacer(Modifier.height(28.dp))
-        LucentCard {
-            TelemetryRow("CURRENT", currentText)
-            TelemetryRow(
+        Spacer(Modifier.height(32.dp))
+        GlassCardVariant {
+            GlassTelemetryRow("CURRENT", currentText)
+            GlassTelemetryRow(
                 "VOLTAGE",
                 if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
             )
-            TelemetryRow("MAX CURRENT", maxMaText)
-            TelemetryRow("MAX VOLTAGE", maxVText)
-            TelemetryRow("TIME TO FULL", etaText)
-            TelemetryRow("SOURCE", info.source)
-            TelemetryRow(
+            GlassTelemetryRow("MAX CURRENT", maxMaText)
+            GlassTelemetryRow("MAX VOLTAGE", maxVText)
+            GlassTelemetryRow("TIME TO FULL", etaText)
+            GlassTelemetryRow("SOURCE", info.source)
+            GlassTelemetryRow(
                 "TEMP",
                 if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
                 last = true,
@@ -567,7 +611,7 @@ private fun DeviceCard(level: Int) {
     } else {
         Build.HARDWARE
     }
-    LucentCard {
+    GlassCard {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -590,9 +634,9 @@ private fun DeviceCard(level: Int) {
                     color = Color.White,
                 )
                 Spacer(Modifier.height(8.dp))
-                TelemetryRow("MODEL", Build.MODEL)
-                TelemetryRow("CHIPSET", chipset ?: "—")
-                TelemetryRow(
+                GlassTelemetryRow("MODEL", Build.MODEL)
+                GlassTelemetryRow("CHIPSET", chipset ?: "—")
+                GlassTelemetryRow(
                     "ANDROID",
                     "${Build.VERSION.RELEASE} · SDK ${Build.VERSION.SDK_INT}",
                     last = true,
@@ -648,6 +692,26 @@ private fun HealthPreview() {
     BatHealthTheme {
         Surface(color = NothingBlack) {
             HealthContent(info = sampleInfo())
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
+@Composable
+private fun GlassHeaderPreview() {
+    BatHealthTheme {
+        Surface(color = NothingBlack) {
+            GlassHeader()
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
+@Composable
+private fun FluentBottomBarPreview() {
+    BatHealthTheme {
+        Surface(color = NothingBlack) {
+            FluentBottomBar(currentRoute = "home", onSelect = {})
         }
     }
 }

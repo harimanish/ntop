@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.bathealth.app"
-        minSdk = 26
+        minSdk = 31
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -53,10 +53,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.navigation:navigation-compose:2.7.7")
-    // True backdrop blur for the floating Lucent bar (falls back to a
-    // translucent scrim below Android 12). 1.6.10 = newest line building
-    // against compileSdk 36 (1.7.x needs 37).
-    implementation("dev.chrisbanes.haze:haze:1.6.10")
+
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

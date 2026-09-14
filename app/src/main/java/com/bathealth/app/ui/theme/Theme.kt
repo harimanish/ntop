@@ -27,6 +27,16 @@ val GlowRed = Color(0x29D71920) // soft red ambience behind Lucent layers
 val GlowWhite = Color(0x0AFFFFFF) // soft white ambience for depth
 
 // ---------------------------------------------------------------------------
+// Enhanced glassmorphism tokens for fluent design.
+// ---------------------------------------------------------------------------
+val GlassSurface = Color(0x1AFFFFFF) // 10% white: stronger glass surface
+val GlassBorder = Color(0x33FFFFFF) // 20% white: stronger border for glass elements
+val GlassHighlight = Color(0x4DFFFFFF) // 30% white: stronger top highlight
+val GlassShadow = Color(0x0D000000) // 5% black: subtle shadow for depth
+val AmbientRed = Color(0x1AD71920) // 10% red: soft red ambience
+val AmbientWhite = Color(0x0AFFFFFF) // 4% white: depth ambience
+
+// ---------------------------------------------------------------------------
 // Geist typeface roles (Nothing OS 5.0 system font, Vercel OFL).
 //
 // Geist Sans  -> UI labels, headings, body (clarity + tight spacing).
@@ -72,9 +82,42 @@ private val BatHealthTypography = Typography(
     ),
 )
 
+// Enhanced typography for glass contexts with slightly increased tracking
+// for better readability on translucent backgrounds.
+val GlassTypography = Typography(
+    displayLarge = TextStyle(
+        fontFamily = GeistMono,
+        fontWeight = FontWeight.Medium,
+        fontSize = 96.sp,
+        lineHeight = 96.sp,
+        letterSpacing = (-1).sp, // slightly looser tracking on glass
+    ),
+    titleLarge = TextStyle(
+        fontFamily = GeistSans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.2.sp, // slightly looser tracking on glass
+    ),
+    labelSmall = TextStyle(
+        fontFamily = GeistMono,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 2.2.sp, // slightly looser tracking on glass
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = GeistSans,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp, // slightly looser tracking on glass
+    ),
+)
+
 private val BatHealthColors = darkColorScheme(
     background = NothingBlack,
-    surface = NothingBlack,
+    surface = GlassSurface,
     onBackground = Color.White,
     onSurface = Color.White,
     primary = Color.White,
