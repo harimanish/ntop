@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -106,24 +107,24 @@ fun FluentBottomBar(
     modifier: Modifier = Modifier,
     hazeState: HazeState,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
-            .hazeEffect(
-                state = hazeState,
-                style = HazeStyle(
-                    backgroundColor = Color(0x990A0A0B),
-                    blurRadius = 24.dp,
-                    tints = emptyList(),
-                ),
-            )
-            .border(1.dp, LucentBorder, RoundedCornerShape(28.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            modifier = Modifier
+                .clip(RoundedCornerShape(28.dp))
+                .hazeEffect(
+                    state = hazeState,
+                    style = HazeStyle(
+                        backgroundColor = Color(0x990A0A0B),
+                        blurRadius = 24.dp,
+                        tints = emptyList(),
+                    ),
+                )
+                .border(1.dp, LucentBorder, RoundedCornerShape(28.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FluentTab(
@@ -144,6 +145,12 @@ fun FluentBottomBar(
                 selected = currentRoute == "health",
                 onClick = { onSelect("health") },
             )
+            FluentTab(
+                icon = Icons.Filled.Memory,
+                contentDescription = "Memory",
+                selected = currentRoute == "ram",
+                onClick = { onSelect("ram") },
+            )
         }
     }
 }
@@ -155,13 +162,13 @@ private fun FluentTab(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
+    Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .clickable(role = Role.Tab, onClick = onClick)
             .background(if (selected) LucentSurface else Color.Transparent)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
@@ -169,15 +176,6 @@ private fun FluentTab(
             tint = if (selected) Color.White else Color.White.copy(alpha = 0.45f),
             modifier = Modifier.size(22.dp),
         )
-        if (selected) {
-            Spacer(Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(NothingRed),
-            )
-        }
     }
 }
 

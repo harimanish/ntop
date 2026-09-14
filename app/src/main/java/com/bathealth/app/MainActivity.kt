@@ -236,6 +236,97 @@ private fun Context.readChargeTimeMs(): Long? = try {
     null
 }
 
+// ---------------------------------------------------------------------------
+// RAM: totals from /proc/meminfo (no permission) + per-app PSS via
+// ActivityManager.getProcessMemoryInfo (own processes, no permission).
+// Swap = SwapTotal - SwapFree; cached ≈ Cached + Buffers + SReclaimable.
+// Per-app list covers live own processes; other apps need PACKAGE_USAGE_STATS
+// or root, so the list is scoped to this app's processes.
+// ---------------------------------------------------------------------------
+@Stable
+data class RamInfo(
+    val totalMb: Long = -1,
+    val availMb: Long = -1,
+    val swapTotalMb: Long = -1,
+    val swapFreeMb: Long = -1,
+    val cachedMb: Long = -1,
+    val thresholdMb: Long = -1,
+    val lowMemory: Boolean = false,
+    val apps: List<RamApp> = emptyList(),
+) {
+    val usedMb: Long get() = if (totalMb >= 0 && availMb >= 0) totalMb - availMb else -1
+    val swapUsedMb: Long get() = if (swapTotalMb >= 0 && swapFreeMb >= 0) swapTotalMb - swapFreeMb else -1
+    val usedPct: Int get() = if (totalMb > 0 && usedMb >= 0) ((usedMb * 100) / totalMb).toInt() else -1
+}
+
+@Stable
+data class RamApp(
+    val name: String,
+    val pssMb: Long,
+)
+
+private fun readMeminfoKb(): Map<String, Long> = try {
+    java.io.File("/proc/meminfo").readLines().mapNotNull { line ->
+        val parts = line.split("\\s+".toRegex(), limit = 3)
+        if (parts.size >= 2) {
+            parts[0].trimEnd(':') to (parts[1].toLongOrNull() ?: return@mapNotNull null)
+        } else {
+            null
+        }
+    }.toMap()
+} catch (_: Exception) {
+    emptyMap()
+}
+
+private fun Context.readRamInfo(): RamInfo = try {
+    val mem = readMeminfoKb()
+    fun mb(key: String): Long = mem[key]?.let { it / 1024 } ?: -1
+    val total = mb("MemTotal")
+    val avail = mb("MemAvailable")
+    val swapTotal = mb("SwapTotal")
+    val swapFree = mb("SwapFree")
+    val cached = listOf("Cached", "Buffers", "SReclaimable")
+        .mapNotNull { mem[it] }.sum().let { if (mem.isEmpty()) -1 else it / 1024 }
+    val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+    val memInfo = android.app.ActivityManager.MemoryInfo()
+    am.getMemoryInfo(memInfo)
+    // Per-app list is filled async (see RamContent); keep this call instant so
+    // first draw never waits on the /proc walk.
+    RamInfo(
+        totalMb = total,
+        availMb = avail,
+        swapTotalMb = swapTotal,
+        swapFreeMb = swapFree,
+        cachedMb = cached,
+        thresholdMb = if (memInfo.threshold > 0) (memInfo.threshold / (1024 * 1024)) else -1,
+        lowMemory = memInfo.lowMemory,
+        apps = emptyList(),
+    )
+} catch (_: Exception) {
+    RamInfo()
+}
+
+// Per-app list: Android 10+ hides other apps' /proc entries from an app
+// context, so only own processes are readable. Use ActivityManager PSS for
+// those (no permission, instant) instead of a blocked /proc walk.
+private fun Context.readRamApps(): List<RamApp> = try {
+    val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+    am.runningAppProcesses.orEmpty().mapNotNull { procInfo ->
+        val pssKb = try {
+            am.getProcessMemoryInfo(intArrayOf(procInfo.pid)).firstOrNull()?.totalPss ?: 0
+        } catch (_: Exception) {
+            0
+        }
+        if (pssKb > 0) {
+            RamApp(procInfo.processName.substringAfterLast(':').substringAfterLast('.').take(24), (pssKb / 1024).toLong())
+        } else {
+            null
+        }
+    }.sortedByDescending { it.pssMb }.take(12)
+} catch (_: Exception) {
+    emptyList()
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -265,6 +356,7 @@ fun BatteryScreen() {
     }
     var updatedAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var tick by remember { mutableLongStateOf(0L) }
+    var ram by remember { mutableStateOf(context.readRamInfo()) }
 
     // 1s refresh: broadcasts only fire on actual battery change, so poll the
     // sticky intent + fuel-gauge properties for live temp/voltage/current.
@@ -274,6 +366,7 @@ fun BatteryScreen() {
             val current = ContextCompat.registerReceiver(context, null, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
             val base = current?.toBatteryInfo() ?: info
             info = context.enrichWithHealthProps(base)
+            ram = context.readRamInfo()
             updatedAt = System.currentTimeMillis()
             tick++
         }
@@ -290,12 +383,12 @@ fun BatteryScreen() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    AppShell(info = info, updatedAt = updatedAt)
+    AppShell(info = info, ram = ram, updatedAt = updatedAt)
 }
 
 @Composable
-private fun AppShell(info: BatteryInfo, updatedAt: Long) {
-    val routes = listOf("home", "charge", "health")
+private fun AppShell(info: BatteryInfo, ram: RamInfo, updatedAt: Long) {
+    val routes = listOf("home", "charge", "health", "ram")
     val pagerState = rememberPagerState(pageCount = { routes.size })
     val scope = rememberCoroutineScope()
     val currentPage by remember { derivedStateOf { pagerState.currentPage } }
@@ -329,6 +422,7 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
                 when (routes[page]) {
                     "home" -> HomeContent(info)
                     "charge" -> ChargeContent(info)
+                    "ram" -> RamContent(ram)
                     else -> HealthContent(info)
                 }
             }
@@ -655,10 +749,115 @@ private fun ChargeContent(info: BatteryInfo) {
         FooterClearance()
     }
 }
-
 private fun formatEta(ms: Long): String {
     val mins = (ms / 60_000).toInt().coerceAtLeast(0)
     return if (mins < 60) "$mins MIN" else "${mins / 60}H ${mins % 60}M"
+}
+
+private fun formatMb(mb: Long): String = if (mb >= 0) "%,d".format(Locale.getDefault(), mb) else "—"
+
+// ---------------------------------------------------------------------------
+// RAM: totals from /proc/meminfo + per-app PSS, refreshed with the 1s loop.
+// ---------------------------------------------------------------------------
+@Composable
+private fun RamContent(ram: RamInfo) {
+    val context = LocalContext.current
+    var apps by remember(ram) { mutableStateOf(ram.apps) }
+    LaunchedEffect(ram) {
+        val loaded = context.readRamApps()
+        if (loaded.isNotEmpty()) apps = loaded
+    }
+    val usedText = if (ram.usedMb >= 0) formatMb(ram.usedMb) else "—"
+    val usedPct = ram.usedPct.takeIf { it >= 0 }?.let { "$it%" } ?: ""
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Spacer(Modifier.height(24.dp))
+        EntranceItem(0) { MicroLabel("MEMORY USED") }
+        Spacer(Modifier.height(8.dp))
+        EntranceItem(60) {
+            GlassCardVariant {
+                Text(
+                    text = buildAnnotatedString {
+                        append(usedText)
+                        if (usedPct.isNotEmpty()) {
+                            append(" ")
+                            withStyle(
+                                style = SpanStyle(
+                                    fontSize = 24.sp,
+                                    letterSpacing = 0.sp,
+                                    color = Muted,
+                                ),
+                            ) {
+                                append(usedPct)
+                            }
+                        } else {
+                            append(" MB")
+                        }
+                    },
+                    style = TextStyle(
+                        fontFamily = GeistMono,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 64.sp,
+                        lineHeight = 64.sp,
+                        letterSpacing = (-1).sp,
+                    ),
+                    color = Color.White,
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        EntranceItem(120) {
+            MicroLabel(
+                if (ram.lowMemory) "SYSTEM UNDER MEMORY PRESSURE" else "LIVE FROM MEMINFO — 1S REFRESH",
+                color = Muted,
+            )
+        }
+
+        Spacer(Modifier.height(32.dp))
+        EntranceItem(180) {
+            GlassCardVariant {
+                GlassTelemetryRow("TOTAL", if (ram.totalMb >= 0) "${formatMb(ram.totalMb)} MB" else "—")
+                GlassTelemetryRow("FREE", if (ram.availMb >= 0) "${formatMb(ram.availMb)} MB" else "—")
+                GlassTelemetryRow("CACHED", if (ram.cachedMb >= 0) "${formatMb(ram.cachedMb)} MB" else "—")
+                GlassTelemetryRow(
+                    "SWAP USED",
+                    if (ram.swapUsedMb >= 0) "${formatMb(ram.swapUsedMb)} MB" else "—",
+                )
+                GlassTelemetryRow(
+                    "SWAP FREE",
+                    if (ram.swapFreeMb >= 0) "${formatMb(ram.swapFreeMb)} MB" else "—",
+                )
+                GlassTelemetryRow(
+                    "LOW THRESHOLD",
+                    if (ram.thresholdMb >= 0) "${formatMb(ram.thresholdMb)} MB" else "—",
+                    last = true,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
+        EntranceItem(240) { MicroLabel("THIS APP (PSS)") }
+        Spacer(Modifier.height(8.dp))
+        EntranceItem(280) {
+            GlassCard {
+                if (apps.isEmpty()) {
+                    GlassTelemetryRow("PROCESSES", "—", last = true)
+                } else {
+                    apps.forEachIndexed { index, app ->
+                        GlassTelemetryRow(
+                            app.name.uppercase(Locale.getDefault()),
+                            "${formatMb(app.pssMb)} MB",
+                            last = index == apps.lastIndex,
+                        )
+                    }
+                }
+            }
+        }
+        FooterClearance()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -719,6 +918,21 @@ private fun sampleInfo() = BatteryInfo(
     fullCapMah = 4735,
 )
 
+private fun sampleRam() = RamInfo(
+    totalMb = 12288,
+    availMb = 4096,
+    swapTotalMb = 4096,
+    swapFreeMb = 3072,
+    cachedMb = 2560,
+    thresholdMb = 1024,
+    lowMemory = false,
+    apps = listOf(
+        RamApp("system", 812),
+        RamApp("app", 356),
+        RamApp("surfaceflinger", 188),
+    ),
+)
+
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
 private fun HomePreview() {
@@ -752,6 +966,16 @@ private fun HealthPreview() {
     BatHealthTheme {
         Surface(color = NothingBlack) {
             HealthContent(info = sampleInfo())
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
+@Composable
+private fun RamPreview() {
+    BatHealthTheme {
+        Surface(color = NothingBlack) {
+            RamContent(ram = sampleRam())
         }
     }
 }
