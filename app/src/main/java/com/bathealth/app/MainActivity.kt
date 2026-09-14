@@ -32,18 +32,26 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.Color
@@ -57,10 +65,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
 import com.bathealth.app.ui.components.FluentBackground
 import com.bathealth.app.ui.components.GlassCard
 import com.bathealth.app.ui.components.GlassCardVariant
@@ -291,9 +295,11 @@ fun BatteryScreen() {
 
 @Composable
 private fun AppShell(info: BatteryInfo, updatedAt: Long) {
-    val nav = rememberNavController()
-    val backStack by nav.currentBackStackEntryAsState()
-    val route = backStack?.destination?.route ?: "home"
+    val routes = listOf("home", "charge", "health")
+    val pagerState = rememberPagerState(pageCount = { routes.size })
+    val scope = rememberCoroutineScope()
+    val currentPage by remember { derivedStateOf { pagerState.currentPage } }
+    val route = routes.getOrElse(currentPage) { "home" }
     val hazeState = rememberHazeState()
 
     // Overlay shell: pages fill the screen down to the gesture edge so scroll
@@ -313,16 +319,18 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
         ) {
             GlassHeader()
 
-            NavHost(
-                navController = nav,
-                startDestination = "home",
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier
                     .weight(1f)
                     .hazeSource(state = hazeState),
-            ) {
-                composable("home") { HomeContent(info) }
-                composable("charge") { ChargeContent(info) }
-                composable("health") { HealthContent(info) }
+                pageSpacing = 16.dp,
+            ) { page ->
+                when (routes[page]) {
+                    "home" -> HomeContent(info)
+                    "charge" -> ChargeContent(info)
+                    else -> HealthContent(info)
+                }
             }
         }
 
@@ -342,11 +350,9 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
                 currentRoute = route,
                 hazeState = hazeState,
                 onSelect = { dest ->
-                    if (dest != route) {
-                        nav.navigate(dest) {
-                            popUpTo("home")
-                            launchSingleTop = true
-                        }
+                    val page = routes.indexOf(dest).takeIf { it >= 0 } ?: 0
+                    if (page != pagerState.currentPage) {
+                        scope.launch { pagerState.animateScrollToPage(page) }
                     }
                 },
             )
@@ -358,6 +364,27 @@ private fun AppShell(info: BatteryInfo, updatedAt: Long) {
 @Composable
 private fun FooterClearance() {
     Spacer(Modifier.height(150.dp))
+}
+
+// Staggered fade/slide entrance: item fades in while rising, each step delayed.
+@Composable
+private fun EntranceItem(delayMs: Int, content: @Composable () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(delayMs.toLong())
+        visible = true
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(durationMillis = 350)) +
+            slideInVertically(
+                initialOffsetY = { it / 4 },
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+            ),
+        label = "entrance",
+    ) {
+        content()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -375,45 +402,48 @@ private fun HomeContent(info: BatteryInfo) {
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        MicroLabel("BATTERY")
+        EntranceItem(0) { MicroLabel("BATTERY") }
         Spacer(Modifier.height(8.dp))
-        GlassCardVariant {
-            Text(
-                text = if (animatedLevel >= 0) "${animatedLevel}%" else "--%",
-                style = MaterialTheme.typography.displayLarge,
-                color = Color.White,
-            )
+        EntranceItem(60) {
+            GlassCardVariant {
+                Text(
+                    text = if (animatedLevel >= 0) "${animatedLevel}%" else "--%",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = Color.White,
+                )
+            }
         }
         Spacer(Modifier.height(12.dp))
-        GlassChargePill(charging = info.charging, source = info.source)
+        EntranceItem(120) { GlassChargePill(charging = info.charging, source = info.source) }
 
         Spacer(Modifier.height(32.dp))
         // Glyph Matrix homage: segmented dot progress, 20 cells.
-        GlassGlyphDots(level = info.level.coerceIn(0, 100))
+        EntranceItem(180) { GlassGlyphDots(level = info.level.coerceIn(0, 100)) }
 
         Spacer(Modifier.height(32.dp))
         // Device card: Phone (3) vector render + Build identity.
-        DeviceCard(level = info.level.coerceIn(0, 100))
+        EntranceItem(240) { DeviceCard(level = info.level.coerceIn(0, 100)) }
 
         Spacer(Modifier.height(32.dp))
         // Lucent translucent card: frosted layer + hairline border.
-        GlassCard {
-            GlassTelemetryRow("STATUS", if (info.charging) "CHARGING" else "DISCHARGING")
-            GlassTelemetryRow(
-                "TEMP",
-                if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
-            )
-            GlassTelemetryRow(
-                "VOLTAGE",
-                if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
-                last = true,
-            )
+        EntranceItem(300) {
+            GlassCard {
+                GlassTelemetryRow("STATUS", if (info.charging) "CHARGING" else "DISCHARGING")
+                GlassTelemetryRow(
+                    "TEMP",
+                    if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
+                )
+                GlassTelemetryRow(
+                    "VOLTAGE",
+                    if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
+                    last = true,
+                )
+            }
         }
-
         Spacer(Modifier.height(32.dp))
         // Second DeviceCard at the page end: stays reachable above the
         // floating bar and shows content drifting behind the frost.
-        DeviceCard(level = info.level.coerceIn(0, 100))
+        EntranceItem(360) { DeviceCard(level = info.level.coerceIn(0, 100)) }
 
         FooterClearance()
     }
@@ -442,69 +472,77 @@ private fun HealthContent(info: BatteryInfo) {
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel(if (hasSoh) "STATE OF HEALTH" else "FULL CHARGE CAPACITY")
-            Spacer(Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(if (hasSoh) Color(0xFF4CAF50) else Muted),
-            )
+        EntranceItem(0) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MicroLabel(if (hasSoh) "STATE OF HEALTH" else "FULL CHARGE CAPACITY")
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(if (hasSoh) Color(0xFF4CAF50) else Muted),
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
-        GlassCardVariant {
-            Text(
-                text = buildAnnotatedString {
-                    append(heroText)
-                    if (heroSuffix.isNotEmpty()) {
-                        withStyle(
-                            style = SpanStyle(
-                                fontSize = 24.sp,
-                                letterSpacing = 0.sp,
-                                color = Muted,
-                            ),
-                        ) {
-                            append(heroSuffix)
+        EntranceItem(60) {
+            GlassCardVariant {
+                Text(
+                    text = buildAnnotatedString {
+                        append(heroText)
+                        if (heroSuffix.isNotEmpty()) {
+                            withStyle(
+                                style = SpanStyle(
+                                    fontSize = 24.sp,
+                                    letterSpacing = 0.sp,
+                                    color = Muted,
+                                ),
+                            ) {
+                                append(heroSuffix)
+                            }
+                        } else {
+                            append("%")
                         }
-                    } else {
-                        append("%")
-                    }
-                },
-                style = TextStyle(
-                    fontFamily = GeistMono,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 64.sp,
-                    lineHeight = 64.sp,
-                    letterSpacing = (-1).sp,
-                ),
-                color = Color.White,
-            )
+                    },
+                    style = TextStyle(
+                        fontFamily = GeistMono,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 64.sp,
+                        lineHeight = 64.sp,
+                        letterSpacing = (-1).sp,
+                    ),
+                    color = Color.White,
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
-        MicroLabel(caption, color = Muted)
+        EntranceItem(120) { MicroLabel(caption, color = Muted) }
 
         Spacer(Modifier.height(32.dp))
-        GlassCardVariant {
-            GlassTelemetryRow("CONDITION", info.health)
-            GlassTelemetryRow("CYCLES", cyclesText)
-            GlassTelemetryRow("FULL CAP", fullCapText)
-            GlassTelemetryRow(
-                "TEMP",
-                if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
-            )
-            GlassTelemetryRow(
-                "VOLTAGE",
-                if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
-            )
-            GlassTelemetryRow("CELL", info.technology, last = true)
+        EntranceItem(180) {
+            GlassCardVariant {
+                GlassTelemetryRow("CONDITION", info.health)
+                GlassTelemetryRow("CYCLES", cyclesText)
+                GlassTelemetryRow("FULL CAP", fullCapText)
+                GlassTelemetryRow(
+                    "TEMP",
+                    if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
+                )
+                GlassTelemetryRow(
+                    "VOLTAGE",
+                    if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
+                )
+                GlassTelemetryRow("CELL", info.technology, last = true)
+            }
         }
 
         Spacer(Modifier.height(16.dp))
-        MicroLabel(
-            if (hasSoh) "OFFICIAL SOH FROM BATTERYMANAGER" else "SOH GATED — NEEDS BATTERY_STATS PERMISSION",
-            color = Muted,
-        )
+        EntranceItem(240) {
+            MicroLabel(
+                if (hasSoh) "OFFICIAL SOH FROM BATTERYMANAGER" else "SOH GATED — NEEDS BATTERY_STATS PERMISSION",
+                color = Muted,
+            )
+        }
         FooterClearance()
     }
 }
@@ -544,66 +582,71 @@ private fun ChargeContent(info: BatteryInfo) {
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel("POWER NOW")
-            Spacer(Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(NothingRed),
-            )
+        EntranceItem(0) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                MicroLabel("POWER NOW")
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(NothingRed),
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
-        GlassCardVariant {
-            Text(
-                text = buildAnnotatedString {
-                    append(hero)
-                    if (watts != null) {
-                        withStyle(
-                            style = SpanStyle(
-                                fontSize = 24.sp,
-                                letterSpacing = 0.sp,
-                                color = Muted,
-                            ),
-                        ) {
-                            append(" W")
+        EntranceItem(60) {
+            GlassCardVariant {
+                Text(
+                    text = buildAnnotatedString {
+                        append(hero)
+                        if (watts != null) {
+                            withStyle(
+                                style = SpanStyle(
+                                    fontSize = 24.sp,
+                                    letterSpacing = 0.sp,
+                                    color = Muted,
+                                ),
+                            ) {
+                                append(" W")
+                            }
                         }
-                    }
-                },
-                style = TextStyle(
-                    fontFamily = GeistMono,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 64.sp,
-                    lineHeight = 64.sp,
-                    letterSpacing = (-1).sp,
-                ),
-                color = Color.White,
-            )
+                    },
+                    style = TextStyle(
+                        fontFamily = GeistMono,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 64.sp,
+                        lineHeight = 64.sp,
+                        letterSpacing = (-1).sp,
+                    ),
+                    color = Color.White,
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
-        MicroLabel("+ IN / − OUT OF BATTERY", color = Muted)
+        EntranceItem(120) { MicroLabel("+ IN / − OUT OF BATTERY", color = Muted) }
         Spacer(Modifier.height(12.dp))
-        GlassChargePill(charging = info.charging, source = info.source)
+        EntranceItem(160) { GlassChargePill(charging = info.charging, source = info.source) }
 
         Spacer(Modifier.height(32.dp))
-        GlassCardVariant {
-            GlassTelemetryRow("CURRENT", currentText)
-            GlassTelemetryRow(
-                "VOLTAGE",
-                if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
-            )
-            GlassTelemetryRow("MAX CURRENT", maxMaText)
-            GlassTelemetryRow("MAX VOLTAGE", maxVText)
-            GlassTelemetryRow("TIME TO FULL", etaText)
-            GlassTelemetryRow("SOURCE", info.source)
-            GlassTelemetryRow(
-                "TEMP",
-                if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
-                last = true,
-            )
+        EntranceItem(200) {
+            GlassCardVariant {
+                GlassTelemetryRow("CURRENT", currentText)
+                GlassTelemetryRow(
+                    "VOLTAGE",
+                    if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
+                )
+                GlassTelemetryRow("MAX CURRENT", maxMaText)
+                GlassTelemetryRow("MAX VOLTAGE", maxVText)
+                GlassTelemetryRow("TIME TO FULL", etaText)
+                GlassTelemetryRow("SOURCE", info.source)
+                GlassTelemetryRow(
+                    "TEMP",
+                    if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
+                    last = true,
+                )
+            }
         }
-
         Spacer(Modifier.height(16.dp))
         MicroLabel(
             if (info.charging) "LIVE FROM FUEL GAUGE — 1S REFRESH" else "PLUG IN TO MEASURE CHARGE RATE",

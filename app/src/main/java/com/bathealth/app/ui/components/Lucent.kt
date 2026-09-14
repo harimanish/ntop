@@ -24,6 +24,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -121,17 +127,20 @@ fun FluentBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FluentTab(
-                label = "HOME",
+                icon = Icons.Filled.Home,
+                contentDescription = "Home",
                 selected = currentRoute == "home",
                 onClick = { onSelect("home") },
             )
             FluentTab(
-                label = "CHARGE",
+                icon = Icons.Filled.Bolt,
+                contentDescription = "Charge",
                 selected = currentRoute == "charge",
                 onClick = { onSelect("charge") },
             )
             FluentTab(
-                label = "HEALTH",
+                icon = Icons.Filled.Favorite,
+                contentDescription = "Health",
                 selected = currentRoute == "health",
                 onClick = { onSelect("health") },
             )
@@ -140,30 +149,35 @@ fun FluentBottomBar(
 }
 
 @Composable
-private fun FluentTab(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun FluentTab(
+    icon: ImageVector,
+    contentDescription: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .clickable(role = Role.Tab, onClick = onClick)
             .background(if (selected) LucentSurface else Color.Transparent)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(if (selected) NothingRed else Color.White.copy(alpha = 0.18f)),
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (selected) Color.White else Color.White.copy(alpha = 0.45f),
+            modifier = Modifier.size(22.dp),
         )
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = label,
-            fontFamily = GeistMono,
-            fontSize = MaterialTheme.typography.labelSmall.fontSize,
-            letterSpacing = MaterialTheme.typography.labelSmall.letterSpacing,
-            fontWeight = FontWeight.Medium,
-            color = Color.White,
-        )
+        if (selected) {
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(NothingRed),
+            )
+        }
     }
 }
 
