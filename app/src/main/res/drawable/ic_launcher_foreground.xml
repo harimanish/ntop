@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Nothing-style: white battery outline, red recording dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,44h42v20h-42z M30,44m0,-4a4,4 0,0 1,4 -4h34a4,4 0,0 1,4 4v20a4,4 0,0 1,-4 4h-34a4,4 0,0 1,-4 -4z"
+        android:strokeWidth="1"
+        android:strokeColor="#FFFFFF" />
+    <path
+        android:fillColor="#D71920"
+        android:pathData="M78,50h4v8h-4z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,49h20v10h-20z" />
+</vector>
