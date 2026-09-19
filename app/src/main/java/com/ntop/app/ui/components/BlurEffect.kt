@@ -1,4 +1,4 @@
-package com.bathealth.app.ui.components
+package com.ntop.app.ui.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable

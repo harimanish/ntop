@@ -1,4 +1,4 @@
-package com.bathealth.app.ui.theme
+package com.ntop.app.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -10,7 +10,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import com.bathealth.app.R
+import com.ntop.app.R
 
 // ---------------------------------------------------------------------------
 // Nothing OS 5.0 palette: monochrome-first, one red accent.
@@ -49,7 +49,7 @@ val AmbientWhite = Color(0x0AFFFFFF) // 4% white: depth ambience
 val GeistSans: FontFamily = FontFamily(Font(R.font.geist_sans))
 val GeistMono: FontFamily = FontFamily(Font(R.font.geist_mono))
 
-private val BatHealthTypography = Typography(
+private val NtopTypography = Typography(
     // Hero percentage: Geist Mono, tabular numerals, tight tracking like
     // Nothing's Micrographics clock face.
     displayLarge = TextStyle(
@@ -115,7 +115,7 @@ val GlassTypography = Typography(
     ),
 )
 
-private val BatHealthColors = darkColorScheme(
+private val NtopColors = darkColorScheme(
     background = NothingBlack,
     surface = GlassSurface,
     onBackground = Color.White,
@@ -126,10 +126,10 @@ private val BatHealthColors = darkColorScheme(
 )
 
 @Composable
-fun BatHealthTheme(content: @Composable () -> Unit) {
+fun NtopTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = BatHealthColors,
-        typography = BatHealthTypography,
+        colorScheme = NtopColors,
+        typography = NtopTypography,
         content = content,
     )
 }

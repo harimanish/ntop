@@ -1,4 +1,4 @@
-package com.bathealth.app.ui.components
+package com.ntop.app.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
@@ -25,10 +25,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,14 +46,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.bathealth.app.ui.theme.GeistMono
-import com.bathealth.app.ui.theme.LucentBorder
-import com.bathealth.app.ui.theme.LucentSurface
-import com.bathealth.app.ui.theme.LucentSurfaceStrong
-import com.bathealth.app.ui.theme.Muted
-import com.bathealth.app.ui.theme.NothingBlack
-import com.bathealth.app.ui.theme.NothingBlackSoft
-import com.bathealth.app.ui.theme.NothingRed
+import com.ntop.app.ui.theme.GeistMono
+import com.ntop.app.ui.theme.LucentBorder
+import com.ntop.app.ui.theme.LucentSurface
+import com.ntop.app.ui.theme.LucentSurfaceStrong
+import com.ntop.app.ui.theme.Muted
+import com.ntop.app.ui.theme.NothingBlack
+import com.ntop.app.ui.theme.NothingBlackSoft
+import com.ntop.app.ui.theme.NothingRed
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.hazeEffect
@@ -128,28 +128,28 @@ fun FluentBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FluentTab(
-                icon = Icons.Filled.Home,
-                contentDescription = "Home",
-                selected = currentRoute == "home",
-                onClick = { onSelect("home") },
+                icon = Icons.Filled.ShowChart,
+                contentDescription = "Monitor",
+                selected = currentRoute == "mon",
+                onClick = { onSelect("mon") },
             )
             FluentTab(
-                icon = Icons.Filled.Bolt,
-                contentDescription = "Charge",
-                selected = currentRoute == "charge",
-                onClick = { onSelect("charge") },
+                icon = Icons.Filled.Apps,
+                contentDescription = "Processes",
+                selected = currentRoute == "proc",
+                onClick = { onSelect("proc") },
             )
             FluentTab(
-                icon = Icons.Filled.Favorite,
-                contentDescription = "Health",
-                selected = currentRoute == "health",
-                onClick = { onSelect("health") },
+                icon = Icons.Filled.BatteryFull,
+                contentDescription = "Battery",
+                selected = currentRoute == "batt",
+                onClick = { onSelect("batt") },
             )
             FluentTab(
-                icon = Icons.Filled.Memory,
-                contentDescription = "Memory",
-                selected = currentRoute == "ram",
-                onClick = { onSelect("ram") },
+                icon = Icons.Filled.MonitorHeart,
+                contentDescription = "System",
+                selected = currentRoute == "sys",
+                onClick = { onSelect("sys") },
             )
         }
     }
@@ -206,7 +206,7 @@ fun GlassHeader() {
                     },
             )
             Spacer(Modifier.width(10.dp))
-            MicroLabel("BATHEALTH")
+            MicroLabel("NTOP")
         }
         Spacer(Modifier.height(14.dp))
         Canvas(

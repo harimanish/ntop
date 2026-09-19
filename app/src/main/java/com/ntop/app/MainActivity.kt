@@ -1,15 +1,17 @@
-package com.bathealth.app
+package com.ntop.app
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,29 +26,27 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.Alignment
@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -65,25 +66,40 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.bathealth.app.ui.components.FluentBackground
-import com.bathealth.app.ui.components.GlassCard
-import com.bathealth.app.ui.components.GlassCardVariant
-import com.bathealth.app.ui.components.GlassChargePill
-import com.bathealth.app.ui.components.GlassGlyphDots
-import com.bathealth.app.ui.components.GlassHeader
-import com.bathealth.app.ui.components.GlassTelemetryRow
-import com.bathealth.app.ui.components.Phone3Render
-import com.bathealth.app.ui.components.FluentBottomBar
-import com.bathealth.app.ui.components.MicroLabel
-import com.bathealth.app.ui.theme.BatHealthTheme
-import com.bathealth.app.ui.theme.GeistMono
-import com.bathealth.app.ui.theme.Muted
-import com.bathealth.app.ui.theme.NothingBlack
-import com.bathealth.app.ui.theme.NothingRed
+import com.ntop.app.ui.components.FluentBackground
+import com.ntop.app.ui.components.GlassCard
+import com.ntop.app.ui.components.GlassCardVariant
+import com.ntop.app.ui.components.GlassChargePill
+import com.ntop.app.ui.components.GlassGlyphDots
+import com.ntop.app.ui.components.GlassHeader
+import com.ntop.app.ui.components.GlassTelemetryRow
+import com.ntop.app.ui.components.Phone3Render
+import com.ntop.app.ui.components.FluentBottomBar
+import com.ntop.app.ui.components.GraphCard
+import com.ntop.app.ui.components.CoreBars
+import com.ntop.app.ui.components.MicroLabel
+import com.ntop.app.ui.components.resolveDeviceRender
+import com.ntop.app.stats.MonitorState
+import com.ntop.app.stats.BatteryHealth
+import com.ntop.app.stats.batteryHealth
+import com.ntop.app.stats.recordSession
+import com.ntop.app.stats.ProcEntry
+import com.ntop.app.stats.isShizukuReady
+import com.ntop.app.stats.isShizukuInstalled
+import com.ntop.app.stats.hasUsageAccess
+import com.ntop.app.stats.shizukuProcTable
+import com.ntop.app.stats.usageRanking
+import rikka.shizuku.Shizuku
+import com.ntop.app.ui.theme.NtopTheme
+import com.ntop.app.ui.theme.GeistMono
+import com.ntop.app.ui.theme.LucentSurfaceStrong
+import com.ntop.app.ui.theme.Muted
+import com.ntop.app.ui.theme.NothingBlack
+import com.ntop.app.ui.theme.NothingRed
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 // ---------------------------------------------------------------------------
@@ -332,7 +348,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            BatHealthTheme {
+            NtopTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Transparent,
@@ -354,12 +370,20 @@ fun BatteryScreen() {
             (sticky?.toBatteryInfo() ?: BatteryInfo()).let { context.enrichWithHealthProps(it) },
         )
     }
-    var updatedAt by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var tick by remember { mutableLongStateOf(0L) }
     var ram by remember { mutableStateOf(context.readRamInfo()) }
+    val mon = remember { MonitorState() }
+    var health by remember { mutableStateOf<BatteryHealth?>(null) }
+    var loopN by remember { mutableIntStateOf(0) }
+    val ioScope = rememberCoroutineScope()
+
+    // Initial health resolve (DataStore + map, no waiting for loop).
+    LaunchedEffect(context) {
+        health = batteryHealth(context)
+    }
 
     // 1s refresh: broadcasts only fire on actual battery change, so poll the
     // sticky intent + fuel-gauge properties for live temp/voltage/current.
+    // Also feeds the ntop monitor hub (histories + charge-session learner).
     LaunchedEffect(context) {
         while (true) {
             kotlinx.coroutines.delay(1000)
@@ -367,8 +391,25 @@ fun BatteryScreen() {
             val base = current?.toBatteryInfo() ?: info
             info = context.enrichWithHealthProps(base)
             ram = context.readRamInfo()
-            updatedAt = System.currentTimeMillis()
-            tick++
+            val session = mon.sample(
+                context,
+                charging = info.charging,
+                levelPct = info.level,
+                tempC = info.tempC,
+                powerW = info.powerW,
+                voltageV = info.voltageV,
+                currentMa = info.currentMa,
+            )
+            if (session != null) {
+                ioScope.launch {
+                    recordSession(context, session)
+                    health = batteryHealth(context)
+                }
+            }
+            loopN++
+            if (loopN % 10 == 0) {
+                ioScope.launch { health = batteryHealth(context) }
+            }
         }
     }
 
@@ -376,23 +417,22 @@ fun BatteryScreen() {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 info = ctx.enrichWithHealthProps(intent.toBatteryInfo())
-                updatedAt = System.currentTimeMillis()
             }
         }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    AppShell(info = info, ram = ram, updatedAt = updatedAt)
+    AppShell(info = info, ram = ram, mon = mon, health = health, tick = loopN)
 }
 
 @Composable
-private fun AppShell(info: BatteryInfo, ram: RamInfo, updatedAt: Long) {
-    val routes = listOf("home", "charge", "health", "ram")
+private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health: BatteryHealth?, tick: Int) {
+    val routes = listOf("mon", "proc", "batt", "sys")
     val pagerState = rememberPagerState(pageCount = { routes.size })
     val scope = rememberCoroutineScope()
     val currentPage by remember { derivedStateOf { pagerState.currentPage } }
-    val route = routes.getOrElse(currentPage) { "home" }
+    val route = routes.getOrElse(currentPage) { "mon" }
     val hazeState = rememberHazeState()
 
     // Overlay shell: pages fill the screen down to the gesture edge so scroll
@@ -420,26 +460,21 @@ private fun AppShell(info: BatteryInfo, ram: RamInfo, updatedAt: Long) {
                 pageSpacing = 16.dp,
             ) { page ->
                 when (routes[page]) {
-                    "home" -> HomeContent(info)
-                    "charge" -> ChargeContent(info)
-                    "ram" -> RamContent(ram)
-                    else -> HealthContent(info)
+                    "mon" -> MonContent(mon, tick)
+                    "proc" -> ProcContent(ram, tick)
+                    "sys" -> SysContent(info, mon)
+                    else -> BattContent(info, health, mon, tick)
                 }
             }
         }
 
-        // Floating Lucent footer: updated stamp + frosted tab bar.
+        // Floating Lucent footer: frosted tab bar.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 16.dp),
         ) {
-            MicroLabel(
-                "UPDATED " + SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(updatedAt)),
-                color = Muted,
-            )
-            Spacer(Modifier.height(12.dp))
             FluentBottomBar(
                 currentRoute = route,
                 hazeState = hazeState,
@@ -460,25 +495,11 @@ private fun FooterClearance() {
     Spacer(Modifier.height(150.dp))
 }
 
-// Staggered fade/slide entrance: item fades in while rising, each step delayed.
+// Entrance animation removed: pages render instantly, no fade/slide.
+// Kept as a pass-through so call sites stay unchanged.
 @Composable
 private fun EntranceItem(delayMs: Int, content: @Composable () -> Unit) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(delayMs.toLong())
-        visible = true
-    }
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(animationSpec = tween(durationMillis = 350)) +
-            slideInVertically(
-                initialOffsetY = { it / 4 },
-                animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-            ),
-        label = "entrance",
-    ) {
-        content()
-    }
+    content()
 }
 
 // ---------------------------------------------------------------------------
@@ -544,22 +565,58 @@ private fun HomeContent(info: BatteryInfo) {
 }
 
 // ---------------------------------------------------------------------------
-// HEALTH: official state-of-health %, cycle count + full telemetry.
+// BATT: health % = current full-charge max / design capacity, plus the
+// full telemetry card. Design chain: manual override -> PowerProfile ->
+// Nothing model map; current max: session-learned (median of last 5,
+// >=20% spans) else instant fuel-gauge estimate.
+// Power section uses hold-last smoothing (mon.stableMa) + ETA fallback.
 // ---------------------------------------------------------------------------
 @Composable
-private fun HealthContent(info: BatteryInfo) {
-    val hasSoh = info.stateOfHealth != null
-    val heroValue = if (hasSoh) info.stateOfHealth else info.fullCapMah ?: -1
-    val animatedHero by animateIntAsState(
-        targetValue = heroValue,
+private fun BattContent(info: BatteryInfo, health: BatteryHealth?, mon: MonitorState, tick: Int) {
+    @Suppress("UNUSED_EXPRESSION")
+    tick
+    val pct = health?.healthPct
+    val animatedPct by animateFloatAsState(
+        targetValue = pct ?: -1f,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
         label = "hero",
     )
-    val heroText = if (hasSoh) "${animatedHero}%" else if (info.fullCapMah != null) "≈$animatedHero" else "—"
-    val heroSuffix = if (hasSoh) "" else if (info.fullCapMah != null) " mAh" else ""
-    val caption = if (hasSoh) "EST FULL CHARGE VS RATED" else "EST FULL CHARGE FROM COUNTER"
+    val heroText = if (pct != null) "%.1f".format(Locale.getDefault(), animatedPct.coerceAtLeast(0f)) else "—"
+    val designText = health?.designMah?.let { "%,d mAh".format(Locale.getDefault(), it) } ?: "—"
+    val designSrc = health?.designSource ?: "UNKNOWN"
+    val currentText = health?.currentMaxMah?.let { "≈%,d mAh".format(Locale.getDefault(), it.toInt()) } ?: "—"
+    val currentSrc = if ((health?.learnedSessions ?: 0) >= 2) {
+        "LEARNED(${health?.learnedSessions})"
+    } else {
+        "INSTANT"
+    }
+    val wearText = health?.wearPct?.let { "%.1f%%".format(Locale.getDefault(), it) } ?: "—"
     val cyclesText = info.cycleCount?.toString() ?: "—"
-    val fullCapText = info.fullCapMah?.let { "≈$it mAh" } ?: "—"
+    val sohText = info.stateOfHealth?.let { "$it%" }
+    // Stabilized power: hold the last non-null gauge current up to 15s so
+    // the readout doesn't flicker to empty on zero-read ticks.
+    val ma = mon.stableMa ?: info.avgCurrentMa
+    val watts = if (!info.voltageV.isNaN() && ma != null) info.voltageV * ma / 1000f else null
+    val animatedWatts by animateFloatAsState(
+        targetValue = watts ?: 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+        label = "watts",
+    )
+    val hero = if (watts != null) "%+.1f".format(Locale.getDefault(), animatedWatts) else "—"
+    val powerCurrentText = ma?.let { "%+.0f mA".format(Locale.getDefault(), it) } ?: "—"
+    val maxMaText = info.maxCurrentMa?.let { "%.0f mA".format(Locale.getDefault(), it) } ?: "—"
+    val maxVText = info.maxVoltageV?.let { "%.1f V".format(Locale.getDefault(), it) } ?: "—"
+    // ETA: OS estimate first; fallback from remaining capacity / live current.
+    val etaText = info.chargeTimeMs?.let { formatEta(it) } ?: run {
+        val capMah = health?.currentMaxMah ?: health?.designMah?.toFloat()
+        val chargeMa = ma?.takeIf { it > 0 }
+        if (info.charging && capMah != null && chargeMa != null && info.level in 0..99) {
+            val remainMah = capMah * (100 - info.level) / 100f
+            "≈" + formatEta((remainMah / chargeMa * 3600_000).toLong())
+        } else {
+            "—"
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -568,13 +625,13 @@ private fun HealthContent(info: BatteryInfo) {
         Spacer(Modifier.height(24.dp))
         EntranceItem(0) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                MicroLabel(if (hasSoh) "STATE OF HEALTH" else "FULL CHARGE CAPACITY")
+                MicroLabel("BATTERY HEALTH")
                 Spacer(Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(if (hasSoh) Color(0xFF4CAF50) else Muted),
+                        .background(if (pct != null) Color(0xFF4CAF50) else Muted),
                 )
             }
         }
@@ -584,19 +641,7 @@ private fun HealthContent(info: BatteryInfo) {
                 Text(
                     text = buildAnnotatedString {
                         append(heroText)
-                        if (heroSuffix.isNotEmpty()) {
-                            withStyle(
-                                style = SpanStyle(
-                                    fontSize = 24.sp,
-                                    letterSpacing = 0.sp,
-                                    color = Muted,
-                                ),
-                            ) {
-                                append(heroSuffix)
-                            }
-                        } else {
-                            append("%")
-                        }
+                        if (pct != null) append("%")
                     },
                     style = TextStyle(
                         fontFamily = GeistMono,
@@ -610,14 +655,16 @@ private fun HealthContent(info: BatteryInfo) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        EntranceItem(120) { MicroLabel(caption, color = Muted) }
 
         Spacer(Modifier.height(32.dp))
         EntranceItem(180) {
             GlassCardVariant {
                 GlassTelemetryRow("CONDITION", info.health)
                 GlassTelemetryRow("CYCLES", cyclesText)
-                GlassTelemetryRow("FULL CAP", fullCapText)
+                GlassTelemetryRow("DESIGN", "$designText · $designSrc")
+                GlassTelemetryRow("CURRENT MAX", "$currentText · $currentSrc")
+                GlassTelemetryRow("WEAR", wearText)
+                if (sohText != null) GlassTelemetryRow("SOH (HAL)", sohText)
                 GlassTelemetryRow(
                     "TEMP",
                     if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
@@ -630,52 +677,7 @@ private fun HealthContent(info: BatteryInfo) {
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-        EntranceItem(240) {
-            MicroLabel(
-                if (hasSoh) "OFFICIAL SOH FROM BATTERYMANAGER" else "SOH GATED — NEEDS BATTERY_STATS PERMISSION",
-                color = Muted,
-            )
-        }
-        FooterClearance()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// CHARGE: live electrical stats — watts hero, volts/amps, charger limits.
-// Current re-reads every 1s while this tab is visible (scoped poll) plus
-// system broadcast updates from the shared BatteryScreen state.
-// ---------------------------------------------------------------------------
-@Composable
-private fun ChargeContent(info: BatteryInfo) {
-    val context = LocalContext.current
-    var liveMa by remember(info.currentMa) { mutableStateOf(info.currentMa) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(1000)
-            context.readCurrentMa(average = false)?.let { liveMa = it }
-        }
-    }
-
-    val ma = liveMa ?: info.avgCurrentMa
-    val watts = if (!info.voltageV.isNaN() && ma != null) info.voltageV * ma / 1000f else null
-    val animatedWatts by animateFloatAsState(
-        targetValue = watts ?: 0f,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-        label = "watts",
-    )
-    val hero = if (watts != null) "%+.1f".format(Locale.getDefault(), animatedWatts) else "—"
-    val currentText = ma?.let { "%+.0f mA".format(Locale.getDefault(), it) } ?: "—"
-    val maxMaText = info.maxCurrentMa?.let { "%.0f mA".format(Locale.getDefault(), it) } ?: "—"
-    val maxVText = info.maxVoltageV?.let { "%.1f V".format(Locale.getDefault(), it) } ?: "—"
-    val etaText = info.chargeTimeMs?.let { formatEta(it) } ?: "—"
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(32.dp))
         EntranceItem(0) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MicroLabel("POWER NOW")
@@ -718,37 +720,36 @@ private fun ChargeContent(info: BatteryInfo) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        EntranceItem(120) { MicroLabel("+ IN / − OUT OF BATTERY", color = Muted) }
-        Spacer(Modifier.height(12.dp))
         EntranceItem(160) { GlassChargePill(charging = info.charging, source = info.source) }
 
         Spacer(Modifier.height(32.dp))
         EntranceItem(200) {
             GlassCardVariant {
-                GlassTelemetryRow("CURRENT", currentText)
+                GlassTelemetryRow("CURRENT", powerCurrentText)
                 GlassTelemetryRow(
                     "VOLTAGE",
                     if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
-                )
-                GlassTelemetryRow("MAX CURRENT", maxMaText)
-                GlassTelemetryRow("MAX VOLTAGE", maxVText)
-                GlassTelemetryRow("TIME TO FULL", etaText)
-                GlassTelemetryRow("SOURCE", info.source)
-                GlassTelemetryRow(
-                    "TEMP",
-                    if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
                     last = true,
                 )
             }
         }
+        Spacer(Modifier.height(12.dp))
+        EntranceItem(220) {
+            GlassCardVariant {
+                GlassTelemetryRow("MAX CURRENT", maxMaText)
+                GlassTelemetryRow("MAX VOLTAGE", maxVText)
+                GlassTelemetryRow("TIME TO FULL", etaText)
+                GlassTelemetryRow("SOURCE", info.source, last = true)
+            }
+        }
         Spacer(Modifier.height(16.dp))
-        MicroLabel(
-            if (info.charging) "LIVE FROM FUEL GAUGE — 1S REFRESH" else "PLUG IN TO MEASURE CHARGE RATE",
-            color = Muted,
-        )
+        if (!info.charging) {
+            MicroLabel("PLUG IN TO MEASURE CHARGE RATE", color = Muted)
+        }
         FooterClearance()
     }
 }
+
 private fun formatEta(ms: Long): String {
     val mins = (ms / 60_000).toInt().coerceAtLeast(0)
     return if (mins < 60) "$mins MIN" else "${mins / 60}H ${mins % 60}M"
@@ -756,104 +757,215 @@ private fun formatEta(ms: Long): String {
 
 private fun formatMb(mb: Long): String = if (mb >= 0) "%,d".format(Locale.getDefault(), mb) else "—"
 
+private fun formatBps(bps: Float): String = when {
+    bps < 0 -> "—"
+    bps < 1024 -> "%.0f B/s".format(Locale.getDefault(), bps)
+    bps < 1024 * 1024 -> "%.1f KB/s".format(Locale.getDefault(), bps / 1024)
+    else -> "%.1f MB/s".format(Locale.getDefault(), bps / (1024 * 1024))
+}
+
+private fun formatGb(mb: Long): String =
+    if (mb >= 0) "%.1f GB".format(Locale.getDefault(), mb / 1024f) else "—"
+
 // ---------------------------------------------------------------------------
-// RAM: totals from /proc/meminfo + per-app PSS, refreshed with the 1s loop.
+// MON: btop-style overview — CPU freq + MEM/SWAP/NET history graphs.
+// CPU load is a frequency proxy (cur/max per core): /proc/stat is denied
+// to apps, so it is honestly labeled FREQ, not %.
 // ---------------------------------------------------------------------------
 @Composable
-private fun RamContent(ram: RamInfo) {
-    val context = LocalContext.current
-    var apps by remember(ram) { mutableStateOf(ram.apps) }
-    LaunchedEffect(ram) {
-        val loaded = context.readRamApps()
-        if (loaded.isNotEmpty()) apps = loaded
-    }
-    val usedText = if (ram.usedMb >= 0) formatMb(ram.usedMb) else "—"
-    val usedPct = ram.usedPct.takeIf { it >= 0 }?.let { "$it%" } ?: ""
+private fun MonContent(mon: MonitorState, tick: Int) {
+    // tick is read (via the key below staying stable) to force refresh each
+    // second: data-class samples are often equal tick-to-tick, which Compose
+    // would otherwise treat as unchanged and skip.
+    @Suppress("UNUSED_EXPRESSION")
+    tick
+    val cores = mon.cores
+    val avgMhz = if (cores.isNotEmpty()) cores.map { it.curFreqKhz }.average() / 1000 else 0.0
+    val maxMhz = cores.maxOfOrNull { it.maxFreqKhz } ?: 0L
+    val mem = mon.mem
+    val rxMax = (mon.rxHist.values().maxOrNull() ?: 0f).coerceAtLeast(1f)
+    val txMax = (mon.txHist.values().maxOrNull() ?: 0f).coerceAtLeast(1f)
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        EntranceItem(0) { MicroLabel("MEMORY USED") }
+        MicroLabel("CPU FREQ PROXY")
         Spacer(Modifier.height(8.dp))
-        EntranceItem(60) {
+        GraphCard(
+            label = "AVG FREQ",
+            readout = "%.0f MHz".format(Locale.getDefault(), avgMhz),
+            values = mon.cpuHist.values(),
+            max = 100f,
+        )
+        Spacer(Modifier.height(12.dp))
+        CoreBars(
+            cores = cores.map { it.loadProxy },
+            maxMhz = "MAX ${maxMhz / 1000} MHZ · ${cores.size} CORES",
+        )
+        Spacer(Modifier.height(32.dp))
+        MicroLabel("MEMORY")
+        Spacer(Modifier.height(8.dp))
+        GraphCard(
+            label = "RAM USED",
+            readout = if (mem.totalMb > 0) "${formatGb(mem.usedMb)} / ${formatGb(mem.totalMb)}" else "—",
+            values = mon.memHist.values(),
+            max = 100f,
+        )
+        Spacer(Modifier.height(12.dp))
+        GraphCard(
+            label = "SWAP USED",
+            readout = if (mem.swapTotalMb > 0) "${formatMb(mem.swapUsedMb)} MB" else "—",
+            values = mon.swapHist.values(),
+            max = 100f,
+        )
+        Spacer(Modifier.height(32.dp))
+        MicroLabel("NETWORK")
+        Spacer(Modifier.height(8.dp))
+        GraphCard("NET DOWN", formatBps(mon.net.rxBps), mon.rxHist.values(), rxMax)
+        Spacer(Modifier.height(12.dp))
+        GraphCard("NET UP", formatBps(mon.net.txBps), mon.txHist.values(), txMax)
+        FooterClearance()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PROC: per-process table in three tiers — (1) Shizuku: full system PSS
+// table, true btop; (2) UsageStats: top apps by foreground time (no RAM);
+// (3) fallback: this app's own processes, the only attribution the OS
+// grants a normal app. Sorted desc, refreshed every 3s.
+// ---------------------------------------------------------------------------
+@Composable
+private fun ProcContent(ram: RamInfo, tick: Int) {
+    val context = LocalContext.current
+    var shizukuReady by remember { mutableStateOf(false) }
+    var shizukuPresent by remember { mutableStateOf(false) }
+    var usageOk by remember { mutableStateOf(false) }
+    var rows by remember { mutableStateOf<List<ProcEntry>>(emptyList()) }
+
+    DisposableEffect(context) {
+        val listener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
+            shizukuReady = grantResult == PackageManager.PERMISSION_GRANTED
+        }
+        Shizuku.addRequestPermissionResultListener(listener)
+        onDispose { Shizuku.removeRequestPermissionResultListener(listener) }
+    }
+
+    // One-shot auto-request: pop the system grant dialog as soon as the
+    // Shizuku binder is up but ntop isn't authorized yet (once per process
+    // lifetime; the manual GRANT button below stays as fallback).
+    var autoRequested by remember { mutableStateOf(false) }
+    LaunchedEffect(shizukuPresent, shizukuReady) {
+        if (shizukuPresent && !shizukuReady && !autoRequested) {
+            autoRequested = true
+            try {
+                Shizuku.requestPermission(1001)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    LaunchedEffect(tick) {
+        if (tick % 3 != 0) return@LaunchedEffect
+        shizukuReady = isShizukuReady()
+        shizukuPresent = isShizukuInstalled(context)
+        usageOk = hasUsageAccess(context)
+        rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            when {
+                shizukuReady -> shizukuProcTable(context)
+                usageOk -> usageRanking(context)
+                else -> context.readRamApps().map { ProcEntry(it.name, it.pssMb) }
+            }
+        }
+    }
+
+    val header = when {
+        shizukuReady -> "PROCESSES · ALL APPS (PSS)"
+        usageOk -> "TOP APPS · FOREGROUND 24H"
+        else -> "PROCESSES · THIS APP (PSS)"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Spacer(Modifier.height(24.dp))
+        MicroLabel(header)
+        Spacer(Modifier.height(8.dp))
+        GlassCard {
+            if (rows.isEmpty()) {
+                GlassTelemetryRow("PROCESSES", "—", last = true)
+            } else {
+                rows.forEachIndexed { index, app ->
+                    val value = if (app.pssMb >= 0) {
+                        if (app.pssMb > 0) "${formatMb(app.pssMb)} MB" else "<1 MB"
+                    } else {
+                        "${app.foregroundMin} MIN"
+                    }
+                    GlassTelemetryRow(
+                        app.label.uppercase(Locale.getDefault()),
+                        value,
+                        last = index == rows.lastIndex,
+                    )
+                }
+            }
+        }
+        if (!shizukuReady) {
+            Spacer(Modifier.height(16.dp))
+            MicroLabel("FULL TABLE NEEDS SHIZUKU")
+            Spacer(Modifier.height(8.dp))
             GlassCardVariant {
-                Text(
-                    text = buildAnnotatedString {
-                        append(usedText)
-                        if (usedPct.isNotEmpty()) {
-                            append(" ")
-                            withStyle(
-                                style = SpanStyle(
-                                    fontSize = 24.sp,
-                                    letterSpacing = 0.sp,
-                                    color = Muted,
-                                ),
-                            ) {
-                                append(usedPct)
-                            }
-                        } else {
-                            append(" MB")
+                Column {
+                    GlassTelemetryRow(
+                        "SHIZUKU",
+                        if (shizukuPresent) "TAP TO REQUEST" else "NOT RUNNING",
+                    )
+                    if (shizukuPresent) {
+                        Spacer(Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable(role = Role.Button) {
+                                    try {
+                                        Shizuku.requestPermission(1001)
+                                    } catch (_: Exception) {
+                                    }
+                                }
+                                .background(LucentSurfaceStrong)
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MicroLabel("GRANT VIA SHIZUKU MANAGER")
                         }
-                    },
-                    style = TextStyle(
-                        fontFamily = GeistMono,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 64.sp,
-                        lineHeight = 64.sp,
-                        letterSpacing = (-1).sp,
-                    ),
-                    color = Color.White,
-                )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        EntranceItem(120) {
-            MicroLabel(
-                if (ram.lowMemory) "SYSTEM UNDER MEMORY PRESSURE" else "LIVE FROM MEMINFO — 1S REFRESH",
-                color = Muted,
-            )
-        }
-
-        Spacer(Modifier.height(32.dp))
-        EntranceItem(180) {
-            GlassCardVariant {
-                GlassTelemetryRow("TOTAL", if (ram.totalMb >= 0) "${formatMb(ram.totalMb)} MB" else "—")
-                GlassTelemetryRow("FREE", if (ram.availMb >= 0) "${formatMb(ram.availMb)} MB" else "—")
-                GlassTelemetryRow("CACHED", if (ram.cachedMb >= 0) "${formatMb(ram.cachedMb)} MB" else "—")
-                GlassTelemetryRow(
-                    "SWAP USED",
-                    if (ram.swapUsedMb >= 0) "${formatMb(ram.swapUsedMb)} MB" else "—",
-                )
-                GlassTelemetryRow(
-                    "SWAP FREE",
-                    if (ram.swapFreeMb >= 0) "${formatMb(ram.swapFreeMb)} MB" else "—",
-                )
-                GlassTelemetryRow(
-                    "LOW THRESHOLD",
-                    if (ram.thresholdMb >= 0) "${formatMb(ram.thresholdMb)} MB" else "—",
-                    last = true,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-        EntranceItem(240) { MicroLabel("THIS APP (PSS)") }
-        Spacer(Modifier.height(8.dp))
-        EntranceItem(280) {
-            GlassCard {
-                if (apps.isEmpty()) {
-                    GlassTelemetryRow("PROCESSES", "—", last = true)
-                } else {
-                    apps.forEachIndexed { index, app ->
-                        GlassTelemetryRow(
-                            app.name.uppercase(Locale.getDefault()),
-                            "${formatMb(app.pssMb)} MB",
-                            last = index == apps.lastIndex,
-                        )
                     }
                 }
+            }
+        }
+        if (!usageOk && !shizukuReady) {
+            Spacer(Modifier.height(16.dp))
+            MicroLabel("APP RANKING NEEDS USAGE ACCESS")
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(role = Role.Button) {
+                        try {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS,
+                                ),
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                    .background(LucentSurfaceStrong)
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                MicroLabel("OPEN USAGE ACCESS SETTINGS")
             }
         }
         FooterClearance()
@@ -861,7 +973,38 @@ private fun RamContent(ram: RamInfo) {
 }
 
 // ---------------------------------------------------------------------------
-// Device card: Phone (3) Canvas render + zero-permission Build identity.
+// SYS: device card + storage. RAM totals moved to the MON graphs.
+// ---------------------------------------------------------------------------
+@Composable
+private fun SysContent(info: BatteryInfo, mon: MonitorState) {
+    val storage = mon.storage
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Spacer(Modifier.height(24.dp))
+        MicroLabel("DEVICE")
+        Spacer(Modifier.height(8.dp))
+        DeviceCard(level = info.level.coerceIn(0, 100))
+        Spacer(Modifier.height(32.dp))
+        MicroLabel("STORAGE")
+        Spacer(Modifier.height(8.dp))
+        GlassCardVariant {
+            GlassTelemetryRow(
+                "USED",
+                if (storage.totalMb > 0) "${formatGb(storage.usedMb)} / ${formatGb(storage.totalMb)}" else "—",
+            )
+            GlassTelemetryRow("FREE", formatGb(storage.freeMb), last = true)
+        }
+        FooterClearance()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Device card: official store render for the detected Nothing/CMF model
+// (see resolveDeviceRender) with the hand-drawn Phone3Render vector as the
+// loading/error/offline fallback + zero-permission Build identity.
 // ---------------------------------------------------------------------------
 @Composable
 private fun DeviceCard(level: Int) {
@@ -870,6 +1013,8 @@ private fun DeviceCard(level: Int) {
     } else {
         Build.HARDWARE
     }
+    val render = remember { resolveDeviceRender() }
+    val context = LocalContext.current
     GlassCard {
         Row(
             modifier = Modifier
@@ -877,15 +1022,45 @@ private fun DeviceCard(level: Int) {
                 .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Phone3Render(
-                level = level,
-                modifier = Modifier
-                    .height(150.dp)
-                    .aspectRatio(0.52f),
-            )
+            if (render != null) {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(render.imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Nothing ${render.name}",
+                    modifier = Modifier
+                        .height(150.dp)
+                        .aspectRatio(1f),
+                    contentScale = ContentScale.Fit,
+                    loading = {
+                        Phone3Render(
+                            level = level,
+                            modifier = Modifier
+                                .height(150.dp)
+                                .aspectRatio(0.52f),
+                        )
+                    },
+                    error = {
+                        Phone3Render(
+                            level = level,
+                            modifier = Modifier
+                                .height(150.dp)
+                                .aspectRatio(0.52f),
+                        )
+                    },
+                )
+            } else {
+                Phone3Render(
+                    level = level,
+                    modifier = Modifier
+                        .height(150.dp)
+                        .aspectRatio(0.52f),
+                )
+            }
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                MicroLabel("DEVICE", color = Muted)
+                MicroLabel(render?.name?.uppercase(Locale.getDefault()) ?: "DEVICE", color = Muted)
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "${Build.MANUFACTURER} ${Build.MODEL}",
@@ -895,6 +1070,7 @@ private fun DeviceCard(level: Int) {
                 Spacer(Modifier.height(8.dp))
                 GlassTelemetryRow("MODEL", Build.MODEL)
                 GlassTelemetryRow("CHIPSET", chipset ?: "—")
+                GlassTelemetryRow("ABI", Build.SUPPORTED_ABIS.firstOrNull() ?: "—")
                 GlassTelemetryRow(
                     "ANDROID",
                     "${Build.VERSION.RELEASE} · SDK ${Build.VERSION.SDK_INT}",
@@ -918,6 +1094,15 @@ private fun sampleInfo() = BatteryInfo(
     fullCapMah = 4735,
 )
 
+private fun sampleHealth() = BatteryHealth(
+    designMah = 5150,
+    designSource = "MODEL MAP",
+    currentMaxMah = 5036f,
+    learnedMah = 5036f,
+    learnedSessions = 3,
+    healthPct = 97.8f,
+)
+
 private fun sampleRam() = RamInfo(
     totalMb = 12288,
     availMb = 4096,
@@ -936,7 +1121,7 @@ private fun sampleRam() = RamInfo(
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
 private fun HomePreview() {
-    BatHealthTheme {
+    NtopTheme {
         Surface(color = NothingBlack) {
             HomeContent(info = sampleInfo())
         }
@@ -945,16 +1130,19 @@ private fun HomePreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
-private fun ChargePreview() {
-    BatHealthTheme {
+private fun BattPreview() {
+    NtopTheme {
         Surface(color = NothingBlack) {
-            ChargeContent(
+            BattContent(
                 info = sampleInfo().copy(
                     currentMa = 1480f,
                     maxCurrentMa = 1500f,
                     maxVoltageV = 5.0f,
                     chargeTimeMs = 54 * 60_000L,
                 ),
+                health = sampleHealth(),
+                mon = MonitorState(),
+                tick = 0,
             )
         }
     }
@@ -962,20 +1150,10 @@ private fun ChargePreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
-private fun HealthPreview() {
-    BatHealthTheme {
+private fun ProcPreview() {
+    NtopTheme {
         Surface(color = NothingBlack) {
-            HealthContent(info = sampleInfo())
-        }
-    }
-}
-
-@Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
-@Composable
-private fun RamPreview() {
-    BatHealthTheme {
-        Surface(color = NothingBlack) {
-            RamContent(ram = sampleRam())
+            ProcContent(ram = sampleRam(), tick = 0)
         }
     }
 }
@@ -983,7 +1161,7 @@ private fun RamPreview() {
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
 private fun GlassHeaderPreview() {
-    BatHealthTheme {
+    NtopTheme {
         Surface(color = NothingBlack) {
             GlassHeader()
         }
@@ -993,9 +1171,9 @@ private fun GlassHeaderPreview() {
 @Composable
 private fun FluentBottomBarPreview() {
     val hazeState = rememberHazeState()
-    BatHealthTheme {
+    NtopTheme {
         Surface(color = NothingBlack) {
-            FluentBottomBar(currentRoute = "home", hazeState = hazeState, onSelect = {})
+            FluentBottomBar(currentRoute = "mon", hazeState = hazeState, onSelect = {})
         }
     }
 }

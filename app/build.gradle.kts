@@ -1,24 +1,25 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.kotlinAndroid)
+    alias(libs.plugins.composeCompiler)
 }
 
 android {
-    namespace = "com.bathealth.app"
+    namespace = "com.ntop.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.bathealth.app"
+        applicationId = "com.ntop.app"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -28,6 +29,7 @@ android {
 
     buildFeatures {
         compose = true
+        aidl = true
     }
 
     compileOptions {
@@ -54,6 +56,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("dev.chrisbanes.haze:haze:1.6.10")
+    implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 
 
     debugImplementation("androidx.compose.ui:ui-tooling")

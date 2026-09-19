@@ -1,4 +1,4 @@
-package com.bathealth.app.ui.components
+package com.ntop.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,7 +18,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.bathealth.app.ui.theme.NothingRed
+import com.ntop.app.ui.theme.NothingRed
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
