@@ -25,6 +25,11 @@ health, and device info — in Nothing's monochrome dot-matrix aesthetic.
 - Battery design capacity resolves from PowerProfile → a Nothing model map
   (Phone 3: 5150 mAh intl / 5500 mAh India) → manual override; the
   session learner refines current-max over charge cycles.
+- **Sideloaded installs (adb)**: Android 13+ gates sensitive access behind
+  "Restricted setting — for your security, this setting is currently
+  unavailable". If the Usage Access toggle is blocked, go to
+  Settings → Apps → ntop → **⋮ menu → Allow restricted settings**,
+  then grant it. This is an install-source policy, not a signature problem.
 
 ## Build
 
