@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Optional: top-apps-by-foreground-time ranking on the PROC tab (Settings grant, graceful without). -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <!-- Required for Glyph Matrix control via Nothing's GDK. -->
+    <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -30,5 +32,30 @@
             android:enabled="true"
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <!-- ntop Glyph Toy (AOD): appears in Settings > Always-on Glyph. -->
+        <service
+            android:name=".stats.GlyphToyService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nothing.glyph.TOY" />
+            </intent-filter>
+            <meta-data
+                android:name="com.nothing.glyph.toy.name"
+                android:resource="@string/toy_name" />
+            <meta-data
+                android:name="com.nothing.glyph.toy.image"
+                android:resource="@drawable/img_toy_preview" />
+            <meta-data
+                android:name="com.nothing.glyph.toy.summary"
+                android:resource="@string/toy_summary" />
+            <meta-data
+                android:name="com.nothing.glyph.toy.aod_support"
+                android:value="1" />
+            <!-- Long press on the Glyph Button sends EVENT_CHANGE; without
+                 this the toy's onLongPress() branch is unreachable. -->
+            <meta-data
+                android:name="com.nothing.glyph.toy.longpress"
+                android:value="1" />
+        </service>
     </application>
 </manifest>

@@ -37,6 +37,21 @@ val AmbientRed = Color(0x1AD71920) // 10% red: soft red ambience
 val AmbientWhite = Color(0x0AFFFFFF) // 4% white: depth ambience
 
 // ---------------------------------------------------------------------------
+// User-selectable accent palette (SYS → APPEARANCE). Drives graph lines +
+// fills, core bars, history dots and the selected-tab indicator. Charging
+// pill/dot always stay NothingRed regardless of accent.
+// ---------------------------------------------------------------------------
+val AccentNames = listOf("WHITE", "GREEN", "AMBER", "BLUE", "VIOLET", "RED")
+val AccentColors = listOf(
+    Color.White,
+    Color(0xFF4CAF50),
+    Color(0xFFFFB300),
+    Color(0xFF40C4FF),
+    Color(0xFFB388FF),
+    NothingRed,
+)
+
+// ---------------------------------------------------------------------------
 // Geist typeface roles (Nothing OS 5.0 system font, Vercel OFL).
 //
 // Geist Sans  -> UI labels, headings, body (clarity + tight spacing).

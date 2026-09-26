@@ -69,12 +69,12 @@ fun BtopGraph(
             lineTo(off * stepX, h)
             close()
         }
-        drawPath(fill, Color.White.copy(alpha = 0.08f))
+        drawPath(fill, lineColor.copy(alpha = 0.08f))
         drawPath(path, lineColor, style = Stroke(width = 1.5.dp.toPx()))
         // Head dot.
         val lx = (off + pts.size - 1) * stepX
         val ly = h * (1f - pts.last())
-        drawCircle(Color.White, 2.5.dp.toPx(), Offset(lx, ly))
+        drawCircle(lineColor, 2.5.dp.toPx(), Offset(lx, ly))
     }
 }
 
@@ -85,6 +85,7 @@ fun GraphCard(
     readout: String,
     values: List<Float>,
     max: Float,
+    accent: Color = Color.White,
 ) {
     GlassCardVariant {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -109,6 +110,7 @@ fun GraphCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(72.dp),
+                lineColor = accent,
             )
         }
     }
@@ -116,7 +118,7 @@ fun GraphCard(
 
 /** Per-core frequency bars (0..1 load proxy each). */
 @Composable
-fun CoreBars(cores: List<Float>, maxMhz: String) {
+fun CoreBars(cores: List<Float>, maxMhz: String, accent: Color = Color.White) {
     GlassCardVariant {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -144,7 +146,7 @@ fun CoreBars(cores: List<Float>, maxMhz: String) {
                 cores.forEachIndexed { i, v ->
                     val y = i * rowH + (rowH - barH) / 2
                     drawRect(Color.White.copy(alpha = 0.10f), Offset(0f, y), size.copy(width = size.width, height = barH))
-                    drawRect(Color.White.copy(alpha = 0.85f), Offset(0f, y), size.copy(width = size.width * v.coerceIn(0f, 1f), height = barH))
+                    drawRect(accent.copy(alpha = 0.85f), Offset(0f, y), size.copy(width = size.width * v.coerceIn(0f, 1f), height = barH))
                 }
             }
         }

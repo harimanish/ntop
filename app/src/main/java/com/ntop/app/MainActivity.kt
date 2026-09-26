@@ -12,6 +12,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -28,7 +32,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryStd
+import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.semantics.Role
@@ -36,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -71,17 +85,33 @@ import com.ntop.app.ui.components.GlassCard
 import com.ntop.app.ui.components.GlassCardVariant
 import com.ntop.app.ui.components.GlassChargePill
 import com.ntop.app.ui.components.GlassGlyphDots
-import com.ntop.app.ui.components.GlassHeader
+import com.ntop.app.ui.components.GlyphConfigSection
 import com.ntop.app.ui.components.GlassTelemetryRow
 import com.ntop.app.ui.components.Phone3Render
 import com.ntop.app.ui.components.FluentBottomBar
 import com.ntop.app.ui.components.GraphCard
 import com.ntop.app.ui.components.CoreBars
+import com.ntop.app.ui.components.SpecGridCell
 import com.ntop.app.ui.components.MicroLabel
 import com.ntop.app.ui.components.resolveDeviceRender
+import com.ntop.app.stats.BLUR_MAX
+import com.ntop.app.stats.BLUR_MIN
+import com.ntop.app.stats.BAR_ALPHA_MAX
+import com.ntop.app.stats.BAR_ALPHA_MIN
 import com.ntop.app.stats.MonitorState
+import com.ntop.app.stats.abiText
+import com.ntop.app.stats.cameraCounts
+import com.ntop.app.stats.chipsetName
+import com.ntop.app.stats.chipsetVendor
+import com.ntop.app.stats.osVersionText
+import com.ntop.app.stats.screenSpec
+import com.ntop.app.stats.setAccent
+import com.ntop.app.stats.setBarAlpha
+import com.ntop.app.stats.setBlurDp
 import com.ntop.app.stats.BatteryHealth
+import com.ntop.app.stats.ThemeSettings
 import com.ntop.app.stats.batteryHealth
+import com.ntop.app.stats.observeThemeSettings
 import com.ntop.app.stats.recordSession
 import com.ntop.app.stats.ProcEntry
 import com.ntop.app.stats.isShizukuReady
@@ -89,8 +119,12 @@ import com.ntop.app.stats.isShizukuInstalled
 import com.ntop.app.stats.hasUsageAccess
 import com.ntop.app.stats.shizukuProcTable
 import com.ntop.app.stats.usageRanking
+import com.ntop.app.stats.quantizeWatts
+import com.nothing.ketchum.Common
 import rikka.shizuku.Shizuku
 import com.ntop.app.ui.theme.NtopTheme
+import com.ntop.app.ui.theme.AccentColors
+import com.ntop.app.ui.theme.AccentNames
 import com.ntop.app.ui.theme.GeistMono
 import com.ntop.app.ui.theme.LucentSurfaceStrong
 import com.ntop.app.ui.theme.Muted
@@ -434,6 +468,11 @@ private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health:
     val currentPage by remember { derivedStateOf { pagerState.currentPage } }
     val route = routes.getOrElse(currentPage) { "mon" }
     val hazeState = rememberHazeState()
+    val context = LocalContext.current
+    val theme by observeThemeSettings(context).collectAsState(
+        initial = ThemeSettings(),
+    )
+    val accent = AccentColors.getOrElse(theme.accentIdx) { AccentColors[0] }
 
     // Overlay shell: pages fill the screen down to the gesture edge so scroll
     // content visibly passes behind the floating frosted bar.
@@ -450,8 +489,6 @@ private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health:
                 .padding(horizontal = 24.dp)
                 .padding(top = 24.dp),
         ) {
-            GlassHeader()
-
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
@@ -460,9 +497,9 @@ private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health:
                 pageSpacing = 16.dp,
             ) { page ->
                 when (routes[page]) {
-                    "mon" -> MonContent(mon, tick)
+                    "mon" -> MonContent(mon, tick, accent)
                     "proc" -> ProcContent(ram, tick)
-                    "sys" -> SysContent(info, mon)
+                    "sys" -> SysContent(info, mon, theme, health)
                     else -> BattContent(info, health, mon, tick)
                 }
             }
@@ -478,6 +515,9 @@ private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health:
             FluentBottomBar(
                 currentRoute = route,
                 hazeState = hazeState,
+                barAlpha = theme.barAlphaPct / 100f,
+                blurDp = theme.blurDp,
+                accent = accent,
                 onSelect = { dest ->
                     val page = routes.indexOf(dest).takeIf { it >= 0 } ?: 0
                     if (page != pagerState.currentPage) {
@@ -537,7 +577,7 @@ private fun HomeContent(info: BatteryInfo) {
 
         Spacer(Modifier.height(32.dp))
         // Device card: Phone (3) vector render + Build identity.
-        EntranceItem(240) { DeviceCard(level = info.level.coerceIn(0, 100)) }
+        EntranceItem(240) {             DeviceRenderImage(level = info.level.coerceIn(0, 100)) }
 
         Spacer(Modifier.height(32.dp))
         // Lucent translucent card: frosted layer + hairline border.
@@ -558,7 +598,7 @@ private fun HomeContent(info: BatteryInfo) {
         Spacer(Modifier.height(32.dp))
         // Second DeviceCard at the page end: stays reachable above the
         // floating bar and shows content drifting behind the frost.
-        EntranceItem(360) { DeviceCard(level = info.level.coerceIn(0, 100)) }
+        EntranceItem(360) {             DeviceRenderImage(level = info.level.coerceIn(0, 100)) }
 
         FooterClearance()
     }
@@ -593,10 +633,16 @@ private fun BattContent(info: BatteryInfo, health: BatteryHealth?, mon: MonitorS
     val wearText = health?.wearPct?.let { "%.1f%%".format(Locale.getDefault(), it) } ?: "—"
     val cyclesText = info.cycleCount?.toString() ?: "—"
     val sohText = info.stateOfHealth?.let { "$it%" }
-    // Stabilized power: hold the last non-null gauge current up to 15s so
-    // the readout doesn't flicker to empty on zero-read ticks.
+    // Stabilized power: the gauge current is EMA-smoothed in MonitorState, then
+    // quantized to the 0.1 W the hero actually shows. Quantizing is what keeps
+    // the last digit still — the spring below is for the transition between
+    // real steps, not a substitute for the deadband.
     val ma = mon.stableMa ?: info.avgCurrentMa
-    val watts = if (!info.voltageV.isNaN() && ma != null) info.voltageV * ma / 1000f else null
+    val watts = if (!info.voltageV.isNaN() && ma != null) {
+        quantizeWatts(info.voltageV * ma / 1000f)
+    } else {
+        null
+    }
     val animatedWatts by animateFloatAsState(
         targetValue = watts ?: 0f,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
@@ -773,7 +819,7 @@ private fun formatGb(mb: Long): String =
 // to apps, so it is honestly labeled FREQ, not %.
 // ---------------------------------------------------------------------------
 @Composable
-private fun MonContent(mon: MonitorState, tick: Int) {
+private fun MonContent(mon: MonitorState, tick: Int, accent: Color) {
     // tick is read (via the key below staying stable) to force refresh each
     // second: data-class samples are often equal tick-to-tick, which Compose
     // would otherwise treat as unchanged and skip.
@@ -798,11 +844,13 @@ private fun MonContent(mon: MonitorState, tick: Int) {
             readout = "%.0f MHz".format(Locale.getDefault(), avgMhz),
             values = mon.cpuHist.values(),
             max = 100f,
+            accent = accent,
         )
         Spacer(Modifier.height(12.dp))
         CoreBars(
             cores = cores.map { it.loadProxy },
             maxMhz = "MAX ${maxMhz / 1000} MHZ · ${cores.size} CORES",
+            accent = accent,
         )
         Spacer(Modifier.height(32.dp))
         MicroLabel("MEMORY")
@@ -812,6 +860,7 @@ private fun MonContent(mon: MonitorState, tick: Int) {
             readout = if (mem.totalMb > 0) "${formatGb(mem.usedMb)} / ${formatGb(mem.totalMb)}" else "—",
             values = mon.memHist.values(),
             max = 100f,
+            accent = accent,
         )
         Spacer(Modifier.height(12.dp))
         GraphCard(
@@ -819,13 +868,14 @@ private fun MonContent(mon: MonitorState, tick: Int) {
             readout = if (mem.swapTotalMb > 0) "${formatMb(mem.swapUsedMb)} MB" else "—",
             values = mon.swapHist.values(),
             max = 100f,
+            accent = accent,
         )
         Spacer(Modifier.height(32.dp))
         MicroLabel("NETWORK")
         Spacer(Modifier.height(8.dp))
-        GraphCard("NET DOWN", formatBps(mon.net.rxBps), mon.rxHist.values(), rxMax)
+        GraphCard("NET DOWN", formatBps(mon.net.rxBps), mon.rxHist.values(), rxMax, accent)
         Spacer(Modifier.height(12.dp))
-        GraphCard("NET UP", formatBps(mon.net.txBps), mon.txHist.values(), txMax)
+        GraphCard("NET UP", formatBps(mon.net.txBps), mon.txHist.values(), txMax, accent)
         FooterClearance()
     }
 }
@@ -976,108 +1026,235 @@ private fun ProcContent(ram: RamInfo, tick: Int) {
 // SYS: device card + storage. RAM totals moved to the MON graphs.
 // ---------------------------------------------------------------------------
 @Composable
-private fun SysContent(info: BatteryInfo, mon: MonitorState) {
+private fun SysContent(info: BatteryInfo, mon: MonitorState, theme: ThemeSettings, health: BatteryHealth?) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val storage = mon.storage
+    val render = remember { resolveDeviceRender() }
+    val accent = AccentColors.getOrElse(theme.accentIdx) { AccentColors[0] }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        MicroLabel("DEVICE")
-        Spacer(Modifier.height(8.dp))
-        DeviceCard(level = info.level.coerceIn(0, 100))
+        // About-Phone hero: OS + name cards beside the device render.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                GlassCardVariant {
+                    MicroLabel("OS", color = Muted)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = osVersionText(),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White,
+                    )
+                }
+                GlassCardVariant {
+                    MicroLabel(
+                        render?.name?.uppercase(Locale.getDefault()) ?: "DEVICE",
+                        color = Muted,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = render?.let { "Nothing ${it.name}" }
+                            ?: "${Build.MANUFACTURER} ${Build.MODEL}",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    MicroLabel("${Build.MODEL} · ${abiText()}", color = Muted)
+                }
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                GlassCardVariant {
+                    DeviceRenderImage(
+                        level = info.level.coerceIn(0, 100),
+                        modifier = Modifier.height(230.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        // Spec grid: only values public APIs can actually provide.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SpecGridCell(
+                icon = Icons.Filled.DeveloperBoard,
+                title = "Processor",
+                subtitle = "${chipsetVendor()}\n${chipsetName()}",
+            )
+            SpecGridCell(
+                icon = Icons.Filled.PhotoCamera,
+                title = "Camera",
+                subtitle = cameraCounts(context),
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SpecGridCell(
+                icon = Icons.Filled.Memory,
+                title = "RAM",
+                subtitle = formatGb(mon.mem.totalMb),
+            )
+            SpecGridCell(
+                icon = Icons.Filled.Storage,
+                title = "Storage",
+                subtitle = formatGb(storage.totalMb),
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SpecGridCell(
+                icon = Icons.Filled.BatteryStd,
+                title = "Battery",
+                subtitle = health?.designMah?.let { "%,d mAh".format(Locale.getDefault(), it) } ?: "—",
+            )
+            SpecGridCell(
+                icon = Icons.Filled.Smartphone,
+                title = "Screen",
+                subtitle = screenSpec(context),
+            )
+        }
         Spacer(Modifier.height(32.dp))
-        MicroLabel("STORAGE")
+        MicroLabel("APPEARANCE")
         Spacer(Modifier.height(8.dp))
         GlassCardVariant {
-            GlassTelemetryRow(
-                "USED",
-                if (storage.totalMb > 0) "${formatGb(storage.usedMb)} / ${formatGb(storage.totalMb)}" else "—",
+            MicroLabel("BAR TRANSPARENCY · ${theme.barAlphaPct}%", color = Muted)
+            Slider(
+                value = theme.barAlphaPct.toFloat(),
+                onValueChange = { scope.launch { setBarAlpha(context, it.toInt()) } },
+                valueRange = BAR_ALPHA_MIN.toFloat()..BAR_ALPHA_MAX.toFloat(),
+                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
             )
-            GlassTelemetryRow("FREE", formatGb(storage.freeMb), last = true)
+            Spacer(Modifier.height(4.dp))
+            MicroLabel("BLUR · ${theme.blurDp} DP", color = Muted)
+            Slider(
+                value = theme.blurDp.toFloat(),
+                onValueChange = { scope.launch { setBlurDp(context, it.toInt()) } },
+                valueRange = BLUR_MIN.toFloat()..BLUR_MAX.toFloat(),
+                colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+            )
+            Spacer(Modifier.height(4.dp))
+            MicroLabel("ACCENT", color = Muted)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AccentColors.forEachIndexed { i, c ->
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(c)
+                            .border(
+                                2.dp,
+                                if (i == theme.accentIdx) Color.White else Color.Transparent,
+                                CircleShape,
+                            )
+                            .clickable(role = Role.Button) {
+                                scope.launch { setAccent(context, i) }
+                            },
+                    )
+                    if (i < AccentColors.size - 1) Spacer(Modifier.width(0.dp))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            MicroLabel(AccentNames.getOrElse(theme.accentIdx) { "WHITE" }, color = Muted)
+        }
+        if (isGlyphMatrixSupported()) {
+            Spacer(Modifier.height(32.dp))
+            MicroLabel("GLYPH MATRIX")
+            Spacer(Modifier.height(8.dp))
+            GlassCardVariant {
+                GlassTelemetryRow("TOY", "NTOP BATTERY · AOD")
+                GlassTelemetryRow(
+                    "MATRIX",
+                    "${glyphMatrixLength()}×${glyphMatrixLength()}",
+                    last = true,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(role = Role.Button) {
+                        try {
+                            context.startActivity(
+                                android.content.Intent().apply {
+                                    component = android.content.ComponentName(
+                                        "com.nothing.thirdparty",
+                                        "com.nothing.thirdparty.matrix.toys.manager.ToysManagerActivity",
+                                    )
+                                },
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                    .background(LucentSurfaceStrong)
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                MicroLabel("ADD TO ALWAYS-ON GLYPH")
+            }
+            Spacer(Modifier.height(24.dp))
+            GlyphConfigSection(accent = accent)
         }
         FooterClearance()
     }
 }
 
 // ---------------------------------------------------------------------------
-// Device card: official store render for the detected Nothing/CMF model
+// Glyph Matrix gating: only matrix devices (Phone 3: 25×25) show the toy
+// section. Guarded — the SDK touches system services on old builds.
+// ---------------------------------------------------------------------------
+private fun glyphMatrixLength(): Int = try {
+    Common.getDeviceMatrixLength()
+} catch (_: Exception) {
+    0
+}
+
+private fun isGlyphMatrixSupported(): Boolean = glyphMatrixLength() > 0
+
+// ---------------------------------------------------------------------------
+// Device render: official store image for the detected Nothing/CMF model
 // (see resolveDeviceRender) with the hand-drawn Phone3Render vector as the
-// loading/error/offline fallback + zero-permission Build identity.
+// loading/error/offline fallback.
 // ---------------------------------------------------------------------------
 @Composable
-private fun DeviceCard(level: Int) {
-    val chipset = if (Build.VERSION.SDK_INT >= 31) {
-        Build.SOC_MODEL ?: Build.HARDWARE
-    } else {
-        Build.HARDWARE
-    }
+private fun DeviceRenderImage(level: Int, modifier: Modifier = Modifier) {
     val render = remember { resolveDeviceRender() }
     val context = LocalContext.current
-    GlassCard {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (render != null) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(render.imageUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Nothing ${render.name}",
-                    modifier = Modifier
-                        .height(150.dp)
-                        .aspectRatio(1f),
-                    contentScale = ContentScale.Fit,
-                    loading = {
-                        Phone3Render(
-                            level = level,
-                            modifier = Modifier
-                                .height(150.dp)
-                                .aspectRatio(0.52f),
-                        )
-                    },
-                    error = {
-                        Phone3Render(
-                            level = level,
-                            modifier = Modifier
-                                .height(150.dp)
-                                .aspectRatio(0.52f),
-                        )
-                    },
-                )
-            } else {
-                Phone3Render(
-                    level = level,
-                    modifier = Modifier
-                        .height(150.dp)
-                        .aspectRatio(0.52f),
-                )
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                MicroLabel(render?.name?.uppercase(Locale.getDefault()) ?: "DEVICE", color = Muted)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "${Build.MANUFACTURER} ${Build.MODEL}",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                )
-                Spacer(Modifier.height(8.dp))
-                GlassTelemetryRow("MODEL", Build.MODEL)
-                GlassTelemetryRow("CHIPSET", chipset ?: "—")
-                GlassTelemetryRow("ABI", Build.SUPPORTED_ABIS.firstOrNull() ?: "—")
-                GlassTelemetryRow(
-                    "ANDROID",
-                    "${Build.VERSION.RELEASE} · SDK ${Build.VERSION.SDK_INT}",
-                    last = true,
-                )
-            }
-        }
+    val fallback = Modifier
+        .height(150.dp)
+        .aspectRatio(0.52f)
+    if (render != null) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(render.imageUrl)
+                .crossfade(true)
+                .build(),
+            contentDescription = "Nothing ${render.name}",
+            modifier = modifier,
+            contentScale = ContentScale.Fit,
+            loading = { Phone3Render(level = level, modifier = fallback) },
+            error = { Phone3Render(level = level, modifier = fallback) },
+        )
+    } else {
+        Phone3Render(level = level, modifier = fallback)
     }
 }
 
@@ -1158,15 +1335,6 @@ private fun ProcPreview() {
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
-@Composable
-private fun GlassHeaderPreview() {
-    NtopTheme {
-        Surface(color = NothingBlack) {
-            GlassHeader()
-        }
-    }
-}
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
 private fun FluentBottomBarPreview() {

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -106,6 +107,9 @@ fun FluentBottomBar(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     hazeState: HazeState,
+    barAlpha: Float = 0.8f,
+    blurDp: Int = 24,
+    accent: Color = Color.White,
 ) {
     Box(
         modifier = modifier.fillMaxWidth(),
@@ -117,8 +121,8 @@ fun FluentBottomBar(
                 .hazeEffect(
                     state = hazeState,
                     style = HazeStyle(
-                        backgroundColor = Color(0x990A0A0B),
-                        blurRadius = 24.dp,
+                        backgroundColor = NothingBlack.copy(alpha = barAlpha.coerceIn(0.5f, 0.95f)),
+                        blurRadius = blurDp.dp.coerceIn(0.dp, 32.dp),
                         tints = emptyList(),
                     ),
                 )
@@ -131,24 +135,28 @@ fun FluentBottomBar(
                 icon = Icons.Filled.ShowChart,
                 contentDescription = "Monitor",
                 selected = currentRoute == "mon",
+                accent = accent,
                 onClick = { onSelect("mon") },
             )
             FluentTab(
                 icon = Icons.Filled.Apps,
                 contentDescription = "Processes",
                 selected = currentRoute == "proc",
+                accent = accent,
                 onClick = { onSelect("proc") },
             )
             FluentTab(
                 icon = Icons.Filled.BatteryFull,
                 contentDescription = "Battery",
                 selected = currentRoute == "batt",
+                accent = accent,
                 onClick = { onSelect("batt") },
             )
             FluentTab(
                 icon = Icons.Filled.MonitorHeart,
                 contentDescription = "System",
                 selected = currentRoute == "sys",
+                accent = accent,
                 onClick = { onSelect("sys") },
             )
         }
@@ -160,72 +168,23 @@ private fun FluentTab(
     icon: ImageVector,
     contentDescription: String,
     selected: Boolean,
+    accent: Color,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .clickable(role = Role.Tab, onClick = onClick)
-            .background(if (selected) LucentSurface else Color.Transparent)
+            .background(if (selected) accent.copy(alpha = 0.16f) else Color.Transparent)
             .padding(horizontal = 18.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = if (selected) Color.White else Color.White.copy(alpha = 0.45f),
+            tint = if (selected) accent else Color.White.copy(alpha = 0.45f),
             modifier = Modifier.size(22.dp),
         )
-    }
-}
-
-@Composable
-fun GlassHeader() {
-    val pulseAlpha = remember { Animatable(0.3f) }
-    LaunchedEffect(Unit) {
-        pulseAlpha.animateTo(
-            targetValue = 0.5f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2000, easing = androidx.compose.animation.core.LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-        )
-    }
-    GlassCardVariant {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(NothingRed)
-                    .drawBehind {
-                        drawCircle(
-                            color = NothingRed.copy(alpha = pulseAlpha.value),
-                            radius = size.width * 1.5f,
-                        )
-                    },
-            )
-            Spacer(Modifier.width(10.dp))
-            MicroLabel("NTOP")
-        }
-        Spacer(Modifier.height(14.dp))
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp),
-        ) {
-            val gap = 14.dp.toPx()
-            val r = 2.dp.toPx()
-            var x = r
-            while (x < size.width) {
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.22f),
-                    radius = r,
-                    center = Offset(x, size.height / 2),
-                )
-                x += gap
-            }
-        }
     }
 }
 
@@ -302,6 +261,44 @@ fun GlassTelemetryRow(label: String, value: String, last: Boolean = false) {
                 .fillMaxWidth()
                 .height(1.dp)
                 .background(Color.White.copy(alpha = 0.08f)),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// About-Phone spec cell: icon + title + subtitle, for the 2-col SYS grid.
+// ---------------------------------------------------------------------------
+@Composable
+fun RowScope.SpecGridCell(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(24.dp))
+            .background(NothingBlackSoft)
+            .border(1.dp, LucentBorder, RoundedCornerShape(24.dp))
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Muted,
         )
     }
 }

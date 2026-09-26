@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- ntop Glyph Toy preview: dot-matrix percent on dark rounded square -->
+    <path
+        android:fillColor="#131316"
+        android:pathData="M8,8h80v80h-80z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,38h8v8h-8z M42,38h8v8h-8z M54,38h8v8h-8z M30,50h8v8h-8z M54,50h8v8h-8z M30,62h8v8h-8z M42,62h8v8h-8z M54,62h8v8h-8z" />
+    <path
+        android:fillColor="#D71920"
+        android:pathData="M66,32h6v6h-6z" />
+</vector>

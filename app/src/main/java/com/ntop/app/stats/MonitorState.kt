@@ -3,6 +3,8 @@ package com.ntop.app.stats
 import android.content.Context
 import android.os.BatteryManager
 import android.os.SystemClock
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------------------
 // ntop monitor hub: owns history buffers + latest snapshot, fed once per
@@ -33,7 +35,18 @@ class MonitorState {
      */
     var stableMa: Float? = null
     private var stableMaTs: Long = 0
-
+    /**
+     * EMA + deadband over the raw gauge current. Feeds [stableMa] so the POWER
+     * NOW readout and the power graph track a real current rather than PMIC
+     * jitter; see [CurrentSmoother].
+     *
+     * alpha is deliberately high: the 1 s loop is slow enough that a lazy
+     * average reads as lag, and the hero already animates through an
+     * `animateFloatAsState` spring, which is what removes the visual jitter.
+     * The deadband is the half that stops the spring being re-triggered by
+     * noise on ticks where the true current has not moved.
+     */
+    private val currentSmoother = CurrentSmoother(alpha = 0.6f, deadbandMa = 20f)
     val tracker = SessionTracker()
 
     private var prevNet: NetTotals = NetTotals(0, 0)
@@ -64,11 +77,16 @@ class MonitorState {
     ): ChargeSession? {
         val now = SystemClock.elapsedRealtime()
 
+        // Reset on a charge-state flip so the average does not trail across
+        // zero (it would otherwise show "+2.1 W" for several seconds after
+        // unplugging).
+        if (charging != wasCharging) currentSmoother.reset()
         if (currentMa != null) {
-            stableMa = currentMa
+            stableMa = currentSmoother.update(currentMa)
             stableMaTs = now
         } else if (now - stableMaTs > STABLE_MA_HOLD_MS) {
             stableMa = null
+            currentSmoother.reset()
         }
 
         mem = sampleMem(context)
@@ -100,7 +118,11 @@ class MonitorState {
         }
 
         if (!tempC.isNaN()) tempHist.push(tempC)
-        if (powerW != null) powerHist.push(kotlin.math.abs(powerW))
+        // Graph the same smoothed current the readout uses, so the trace and
+        // the number cannot disagree.
+        if (!voltageV.isNaN()) {
+            stableMa?.let { powerHist.push(quantizeWatts(abs(it * voltageV / 1000f))) }
+        }
 
         // Session learner: feed while charging, close on unplug/full.
         val counter = context.counterMah()
@@ -117,3 +139,13 @@ class MonitorState {
         }
     }
 }
+
+/**
+ * Watts are shown at 0.1 W precision. Quantizing to that precision is what
+ * actually stops the readout jittering: gauge noise is far smaller than one
+ * displayed digit, so without this the last digit flips on nearly every tick
+ * even though the smoothed current underneath is steady. A deadband in mA
+ * cannot express this, because the right threshold depends on the terminal
+ * voltage and on how the number is formatted.
+ */
+internal fun quantizeWatts(w: Float): Float = (w * 10f).roundToInt() / 10f

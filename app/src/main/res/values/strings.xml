@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ntop</string>
+    <string name="toy_name">ntop Battery</string>
+    <string name="toy_summary">Charging watts and battery % on the Glyph Matrix</string>
 </resources>

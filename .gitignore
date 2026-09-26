@@ -77,3 +77,11 @@ lint-results*.xml
 
 # Android Profiling
 *.hprof
+
+# Signing secrets
+keystore.properties
+*.jks
+*.keystore
+
+# Kotlin compiler scratch
+.kotlin/
