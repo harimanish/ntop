@@ -64,6 +64,27 @@ val AccentColors = listOf(
 val GeistSans: FontFamily = FontFamily(Font(R.font.geist_sans))
 val GeistMono: FontFamily = FontFamily(Font(R.font.geist_mono))
 
+// ---------------------------------------------------------------------------
+// NDot — Nothing's own dot-matrix display face, for hero numerals and section
+// headers. It is a *system* font on Nothing devices (/system/fonts/Ndot-55.otf,
+// family "Ndot 55", PostScript name "Ndot55All" — the same face the Glyph Matrix
+// SDK renders its text with), so there is no asset to bundle and no licence
+// question. Falls back to Geist Mono on devices that do not ship it, which keeps
+// ntop installable anywhere while still looking native on a Nothing phone.
+// ---------------------------------------------------------------------------
+private fun systemTypeface(vararg candidates: String): android.graphics.Typeface? {
+    for (name in candidates) {
+        val tf = runCatching { android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL) }
+            .getOrNull()
+        if (tf != null) return tf
+    }
+    return null
+}
+
+val NDotDisplay: FontFamily = systemTypeface("Ndot 55", "Ndot55All", "NDot55All")
+    ?.let { FontFamily(it) }
+    ?: GeistMono
+
 private val NtopTypography = Typography(
     // Hero percentage: Geist Mono, tabular numerals, tight tracking like
     // Nothing's Micrographics clock face.

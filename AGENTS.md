@@ -91,6 +91,24 @@ fonts, red accent only on charging pill/dot).
   system-service IPCs a second and it stutters. Both are cached
   (`SIGNAL_TTL_MS`), and the foreground query is skipped entirely when no
   app is mapped.
+- **The 1 s sampler ran on the main thread and that, not rendering, was the
+  cost.** `LaunchedEffect` uses the UI dispatcher, so every tick was doing
+  `/proc/meminfo` (twice), 8 per-core `cpufreq` reads, `StatFs`, `TrafficStats`
+  and 4 `BatteryManager.getIntProperty` binder calls on the main thread.
+  Moving it to `Dispatchers.Default` recovered ~5 ms/frame on its own.
+- **Never put `Regex("...")` inside a per-line lambda** — `readMeminfoKb` was
+  compiling a fresh `Pattern` for every line of `/proc/meminfo`, twice a tick.
+  Index-based parsing is ~free. Note the values are preceded by runs of spaces
+  (`MemTotal:       15190456 kB`), so a naive `substringBefore(' ')` silently
+  yields nothing and the UI shows `—`.
+- **Nothing's own display face is a *system* font**, not a bundled asset:
+  `/system/fonts/Ndot-55.otf`, family `"Ndot 55"`, PostScript `Ndot55All` — the
+  same face the Glyph Matrix SDK uses. Resolve it with
+  `Typeface.create("Ndot 55", NORMAL)` and fall back to Geist Mono off-Nothing,
+  so there is no licence question and ntop stays installable anywhere.
+- `HistoryBuffer.values()` must return a cached snapshot, not `buf.toList()`:
+  every graph on a page calls it, and that was a boxed `List<Float>` allocated
+  ~7x per recomposition.
 - **`BATTERY_PROPERTY_CURRENT_NOW` is very noisy** on the Phone 3 — back to
   back 1 s samples swing by tens of mA, which made both the in-app POWER NOW
   readout and the Glyph Toy flicker.

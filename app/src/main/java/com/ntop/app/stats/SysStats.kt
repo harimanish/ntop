@@ -3,6 +3,7 @@ package com.ntop.app.stats
 import android.app.ActivityManager
 import android.content.Context
 import android.net.TrafficStats
+import androidx.compose.runtime.Stable
 
 // ---------------------------------------------------------------------------
 // ntop data layer: btop-style samplers over sources a normal app can read.
@@ -17,13 +18,30 @@ import android.net.TrafficStats
 const val HISTORY_CAP = 60
 
 /** Fixed-size ring buffer for btop-style history graphs (60 samples @1s). */
+/**
+ * Rolling window of samples. [values] hands back a cached immutable list
+ * rather than rebuilding one: every graph on a page calls it (and some pages
+ * call it twice for the max), so allocating a boxed List<Float> on each
+ * recomposition was pure garbage. Invalidated on [push].
+ */
 class HistoryBuffer(val cap: Int = HISTORY_CAP) {
     private val buf = ArrayDeque<Float>(cap)
+    private var snapshot: List<Float> = emptyList()
+
     fun push(v: Float) {
         if (buf.size >= cap) buf.removeFirst()
         buf.addLast(if (v.isFinite()) v else 0f)
+        snapshot = emptyList()
     }
-    fun values(): List<Float> = buf.toList()
+
+    fun values(): List<Float> {
+        if (snapshot.isEmpty() && buf.isNotEmpty()) snapshot = buf.toList()
+        return snapshot
+    }
+
+    /** Peak of the window, without a second list allocation. */
+    fun maxOrZero(): Float = values().maxOrNull() ?: 0f
+
     fun latest(): Float = buf.lastOrNull() ?: 0f
 }
 
@@ -103,21 +121,32 @@ data class MemSnapshot(
     val usedPct: Float get() = if (totalMb > 0 && usedMb >= 0) usedMb / totalMb.toFloat() else -1f
 }
 
-private fun readMeminfoKb(): Map<String, Long> = try {
-    java.io.File("/proc/meminfo").readLines().mapNotNull { line ->
-        val parts = line.split(Regex("\\s+"), limit = 3)
-        if (parts.size >= 2) {
-            parts[0].trimEnd(':') to (parts[1].toLongOrNull() ?: return@mapNotNull null)
-        } else {
-            null
+/**
+ * /proc/meminfo, read once per tick and shared by the RAM card and the monitor
+ * hub, which were each parsing the file separately. Parsed with indexOf rather
+ * than a split regex: the old version compiled a fresh Pattern per line, twice
+ * per tick, on the main thread.
+ */
+internal fun readMeminfoKb(): Map<String, Long> = try {
+    java.io.File("/proc/meminfo").useLines { lines ->
+        val out = HashMap<String, Long>(64)
+        for (line in lines) {
+            val colon = line.indexOf(':')
+            if (colon <= 0) continue
+            // "MemTotal:       15190456 kB" — the value is preceded by a run of
+            // spaces, so it must be trimmed before the unit is split off.
+            val rest = line.substring(colon + 1).trimStart()
+            val value = rest.substringBefore(' ').toLongOrNull() ?: continue
+            out[line.substring(0, colon)] = value
         }
-    }.toMap()
+        out
+    }
 } catch (_: Exception) {
     emptyMap()
 }
 
-fun sampleMem(context: Context): MemSnapshot = try {
-    val mem = readMeminfoKb()
+fun sampleMem(context: Context, kb: Map<String, Long> = readMeminfoKb()): MemSnapshot = try {
+    val mem = kb
     fun mb(key: String): Long = mem[key]?.let { it / 1024 } ?: -1
     val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     val mi = ActivityManager.MemoryInfo()
@@ -177,3 +206,29 @@ fun sampleStorage(): StorageSnapshot = try {
 } catch (_: Exception) {
     StorageSnapshot()
 }
+
+// ---------------------------------------------------------------------------
+// RAM: totals from /proc/meminfo, per-app PSS when attributable.
+// ---------------------------------------------------------------------------
+
+@Stable
+data class RamInfo(
+    val totalMb: Long = -1,
+    val availMb: Long = -1,
+    val swapTotalMb: Long = -1,
+    val swapFreeMb: Long = -1,
+    val cachedMb: Long = -1,
+    val thresholdMb: Long = -1,
+    val lowMemory: Boolean = false,
+    val apps: List<RamApp> = emptyList(),
+) {
+    val usedMb: Long get() = if (totalMb >= 0 && availMb >= 0) totalMb - availMb else -1
+    val swapUsedMb: Long get() = if (swapTotalMb >= 0 && swapFreeMb >= 0) swapTotalMb - swapFreeMb else -1
+    val usedPct: Int get() = if (totalMb > 0 && usedMb >= 0) ((usedMb * 100) / totalMb).toInt() else -1
+}
+
+@Stable
+data class RamApp(
+    val name: String,
+    val pssMb: Long,
+)

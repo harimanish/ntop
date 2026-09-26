@@ -63,6 +63,15 @@ class MonitorState {
     }
 
     /**
+     * Seeds the smoothed current from a cold-start cache so the power readout
+     * is populated on the first frame instead of waiting for a live sample.
+     */
+    fun restoreStableMa(value: Float) {
+        stableMa = value
+        stableMaTs = SystemClock.elapsedRealtime()
+    }
+
+    /**
      * Sample everything. Returns a mature [ChargeSession] when one closes
      * (caller persists it via [recordSession]); null otherwise.
      */
@@ -74,6 +83,8 @@ class MonitorState {
         powerW: Float?,
         voltageV: Float,
         currentMa: Float?,
+        // Shared /proc/meminfo read: the caller already has it for the RAM card.
+        memKb: Map<String, Long> = readMeminfoKb(),
     ): ChargeSession? {
         val now = SystemClock.elapsedRealtime()
 
@@ -89,7 +100,7 @@ class MonitorState {
             currentSmoother.reset()
         }
 
-        mem = sampleMem(context)
+        mem = sampleMem(context, memKb)
         storage = sampleStorage()
         if (mem.usedPct >= 0) memHist.push(mem.usedPct * 100f)
         val swapPct = if (mem.swapTotalMb > 0 && mem.swapUsedMb >= 0) {

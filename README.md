@@ -3,12 +3,14 @@
 A btop-style system monitor for Nothing (and CMF) phones. Four tabs —
 live CPU/memory/network graphs, a per-process table, battery power +
 health, and device info — in Nothing's monochrome dot-matrix aesthetic.
+Graphs are drawn as **dot matrices** and readouts use Nothing's own
+display face where the device ships it.
 
 ## Tabs
 
 | Tab | What it shows |
 | --- | --- |
-| **MON** | CPU frequency proxy graph + per-core bars, RAM/SWAP history, network up/down |
+| **MON** | CPU panel (frequency dot-graph + per-core dot meters), memory and network panels, hairline-divided |
 | **PROC** | Per-process PSS table (via Shizuku), foreground-time ranking, or own processes |
 | **BATT** | Live power (W/A/V), time-to-full, plus battery health % = current max ÷ design capacity |
 | **SYS** | Device render matched to your model, chipset, ABI, storage |

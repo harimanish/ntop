@@ -57,7 +57,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
@@ -85,6 +87,10 @@ import com.ntop.app.ui.components.GlassCard
 import com.ntop.app.ui.components.GlassCardVariant
 import com.ntop.app.ui.components.GlassChargePill
 import com.ntop.app.ui.components.GlassGlyphDots
+import com.ntop.app.ui.components.Panel
+import com.ntop.app.ui.components.PanelRow
+import com.ntop.app.ui.components.DotGraph
+import com.ntop.app.ui.components.CoreDots
 import com.ntop.app.ui.components.GlyphConfigSection
 import com.ntop.app.ui.components.GlassTelemetryRow
 import com.ntop.app.ui.components.Phone3Render
@@ -120,6 +126,11 @@ import com.ntop.app.stats.hasUsageAccess
 import com.ntop.app.stats.shizukuProcTable
 import com.ntop.app.stats.usageRanking
 import com.ntop.app.stats.quantizeWatts
+import com.ntop.app.stats.readMeminfoKb
+import com.ntop.app.stats.loadSampleCache
+import com.ntop.app.stats.RamInfo
+import com.ntop.app.stats.RamApp
+import com.ntop.app.stats.saveSampleCache
 import com.nothing.ketchum.Common
 import rikka.shizuku.Shizuku
 import com.ntop.app.ui.theme.NtopTheme
@@ -293,43 +304,8 @@ private fun Context.readChargeTimeMs(): Long? = try {
 // Per-app list covers live own processes; other apps need PACKAGE_USAGE_STATS
 // or root, so the list is scoped to this app's processes.
 // ---------------------------------------------------------------------------
-@Stable
-data class RamInfo(
-    val totalMb: Long = -1,
-    val availMb: Long = -1,
-    val swapTotalMb: Long = -1,
-    val swapFreeMb: Long = -1,
-    val cachedMb: Long = -1,
-    val thresholdMb: Long = -1,
-    val lowMemory: Boolean = false,
-    val apps: List<RamApp> = emptyList(),
-) {
-    val usedMb: Long get() = if (totalMb >= 0 && availMb >= 0) totalMb - availMb else -1
-    val swapUsedMb: Long get() = if (swapTotalMb >= 0 && swapFreeMb >= 0) swapTotalMb - swapFreeMb else -1
-    val usedPct: Int get() = if (totalMb > 0 && usedMb >= 0) ((usedMb * 100) / totalMb).toInt() else -1
-}
 
-@Stable
-data class RamApp(
-    val name: String,
-    val pssMb: Long,
-)
-
-private fun readMeminfoKb(): Map<String, Long> = try {
-    java.io.File("/proc/meminfo").readLines().mapNotNull { line ->
-        val parts = line.split("\\s+".toRegex(), limit = 3)
-        if (parts.size >= 2) {
-            parts[0].trimEnd(':') to (parts[1].toLongOrNull() ?: return@mapNotNull null)
-        } else {
-            null
-        }
-    }.toMap()
-} catch (_: Exception) {
-    emptyMap()
-}
-
-private fun Context.readRamInfo(): RamInfo = try {
-    val mem = readMeminfoKb()
+private fun Context.readRamInfo(mem: Map<String, Long> = readMeminfoKb()): RamInfo = try {
     fun mb(key: String): Long = mem[key]?.let { it / 1024 } ?: -1
     val total = mb("MemTotal")
     val avail = mb("MemAvailable")
@@ -355,6 +331,7 @@ private fun Context.readRamInfo(): RamInfo = try {
 } catch (_: Exception) {
     RamInfo()
 }
+
 
 // Per-app list: Android 10+ hides other apps' /proc entries from an app
 // context, so only own processes are readable. Use ActivityManager PSS for
@@ -410,6 +387,18 @@ fun BatteryScreen() {
     var loopN by remember { mutableIntStateOf(0) }
     val ioScope = rememberCoroutineScope()
 
+    // Cold start: hydrate from the last known sample so no page opens empty.
+    // Runs off the main thread and lands within a few ms; the 1s live loop
+    // below then takes over.
+    var procRows by remember { mutableStateOf<List<ProcEntry>>(emptyList()) }
+    LaunchedEffect(context) {
+        val cached = loadSampleCache(context) ?: return@LaunchedEffect
+        cached.applyTo(mon)
+        cached.ram?.let { ram = it }
+        procRows = cached.proc
+        loopN++
+    }
+
     // Initial health resolve (DataStore + map, no waiting for loop).
     LaunchedEffect(context) {
         health = batteryHealth(context)
@@ -418,13 +407,21 @@ fun BatteryScreen() {
     // 1s refresh: broadcasts only fire on actual battery change, so poll the
     // sticky intent + fuel-gauge properties for live temp/voltage/current.
     // Also feeds the ntop monitor hub (histories + charge-session learner).
+    // Sampling runs on Dispatchers.Default: this loop does file I/O
+    // (/proc/meminfo, per-core cpufreq reads) and several BatteryManager binder
+    // calls every second, and it was all running on the main thread. Only the
+    // state writes below come back to the UI dispatcher.
     LaunchedEffect(context) {
         while (true) {
             kotlinx.coroutines.delay(1000)
-            val current = ContextCompat.registerReceiver(context, null, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            val current = withContext(Dispatchers.Default) {
+                ContextCompat.registerReceiver(context, null, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            }
             val base = current?.toBatteryInfo() ?: info
-            info = context.enrichWithHealthProps(base)
-            ram = context.readRamInfo()
+            val enriched = withContext(Dispatchers.Default) { context.enrichWithHealthProps(base) }
+            info = enriched
+            val kb = withContext(Dispatchers.Default) { readMeminfoKb() }
+            ram = withContext(Dispatchers.Default) { context.readRamInfo(kb) }
             val session = mon.sample(
                 context,
                 charging = info.charging,
@@ -433,6 +430,7 @@ fun BatteryScreen() {
                 powerW = info.powerW,
                 voltageV = info.voltageV,
                 currentMa = info.currentMa,
+                memKb = kb,
             )
             if (session != null) {
                 ioScope.launch {
@@ -443,6 +441,11 @@ fun BatteryScreen() {
             loopN++
             if (loopN % 10 == 0) {
                 ioScope.launch { health = batteryHealth(context) }
+            }
+            // Persist periodically so the next cold start paints from cache.
+            // Every 10s is plenty: the cache only needs to be roughly recent.
+            if (loopN % 10 == 0) {
+                ioScope.launch { saveSampleCache(context, mon, ram, procRows) }
             }
         }
     }
@@ -457,11 +460,18 @@ fun BatteryScreen() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    AppShell(info = info, ram = ram, mon = mon, health = health, tick = loopN)
+    AppShell(info = info, ram = ram, mon = mon, health = health, tick = loopN, cachedProc = procRows)
 }
 
 @Composable
-private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health: BatteryHealth?, tick: Int) {
+private fun AppShell(
+    info: BatteryInfo,
+    ram: RamInfo,
+    mon: MonitorState,
+    health: BatteryHealth?,
+    tick: Int,
+    cachedProc: List<ProcEntry> = emptyList(),
+) {
     val routes = listOf("mon", "proc", "batt", "sys")
     val pagerState = rememberPagerState(pageCount = { routes.size })
     val scope = rememberCoroutineScope()
@@ -498,7 +508,7 @@ private fun AppShell(info: BatteryInfo, ram: RamInfo, mon: MonitorState, health:
             ) { page ->
                 when (routes[page]) {
                     "mon" -> MonContent(mon, tick, accent)
-                    "proc" -> ProcContent(ram, tick)
+                    "proc" -> ProcContent(ram, tick, cachedProc)
                     "sys" -> SysContent(info, mon, theme, health)
                     else -> BattContent(info, health, mon, tick)
                 }
@@ -829,53 +839,96 @@ private fun MonContent(mon: MonitorState, tick: Int, accent: Color) {
     val avgMhz = if (cores.isNotEmpty()) cores.map { it.curFreqKhz }.average() / 1000 else 0.0
     val maxMhz = cores.maxOfOrNull { it.maxFreqKhz } ?: 0L
     val mem = mon.mem
-    val rxMax = (mon.rxHist.values().maxOrNull() ?: 0f).coerceAtLeast(1f)
-    val txMax = (mon.txHist.values().maxOrNull() ?: 0f).coerceAtLeast(1f)
+    val rxMax = mon.rxHist.maxOrZero().coerceAtLeast(1f)
+    val txMax = mon.txHist.maxOrZero().coerceAtLeast(1f)
+
+    // Phase 2: one framed compartment per subject with hairline-divided rows,
+    // instead of a section header plus a card per stat. Same information, less
+    // chrome, and noticeably less scrolling.
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.height(24.dp))
-        MicroLabel("CPU FREQ PROXY")
-        Spacer(Modifier.height(8.dp))
-        GraphCard(
-            label = "AVG FREQ",
-            readout = "%.0f MHz".format(Locale.getDefault(), avgMhz),
-            values = mon.cpuHist.values(),
-            max = 100f,
-            accent = accent,
-        )
-        Spacer(Modifier.height(12.dp))
-        CoreBars(
-            cores = cores.map { it.loadProxy },
-            maxMhz = "MAX ${maxMhz / 1000} MHZ · ${cores.size} CORES",
-            accent = accent,
-        )
-        Spacer(Modifier.height(32.dp))
-        MicroLabel("MEMORY")
-        Spacer(Modifier.height(8.dp))
-        GraphCard(
-            label = "RAM USED",
-            readout = if (mem.totalMb > 0) "${formatGb(mem.usedMb)} / ${formatGb(mem.totalMb)}" else "—",
-            values = mon.memHist.values(),
-            max = 100f,
-            accent = accent,
-        )
-        Spacer(Modifier.height(12.dp))
-        GraphCard(
-            label = "SWAP USED",
-            readout = if (mem.swapTotalMb > 0) "${formatMb(mem.swapUsedMb)} MB" else "—",
-            values = mon.swapHist.values(),
-            max = 100f,
-            accent = accent,
-        )
-        Spacer(Modifier.height(32.dp))
-        MicroLabel("NETWORK")
-        Spacer(Modifier.height(8.dp))
-        GraphCard("NET DOWN", formatBps(mon.net.rxBps), mon.rxHist.values(), rxMax, accent)
-        Spacer(Modifier.height(12.dp))
-        GraphCard("NET UP", formatBps(mon.net.txBps), mon.txHist.values(), txMax, accent)
+
+        Panel("CPU") {
+            PanelRow("AVG FREQ", "%.0f MHz".format(Locale.getDefault(), avgMhz), showDivider = false)
+            Spacer(Modifier.height(8.dp))
+            DotGraph(
+                values = mon.cpuHist.values(),
+                max = 100f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),
+                dotColor = accent,
+            )
+            Spacer(Modifier.height(14.dp))
+            CoreDots(
+                cores = cores.map { it.loadProxy },
+                accent = accent,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Panel("MEMORY") {
+            PanelRow(
+                "RAM",
+                if (mem.totalMb > 0) "${formatGb(mem.usedMb)} / ${formatGb(mem.totalMb)}" else "—",
+                showDivider = false,
+            )
+            Spacer(Modifier.height(8.dp))
+            DotGraph(
+                values = mon.memHist.values(),
+                max = 100f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                dotColor = accent,
+            )
+            Spacer(Modifier.height(14.dp))
+            PanelRow(
+                "SWAP",
+                if (mem.swapTotalMb > 0) "${formatMb(mem.swapUsedMb)} MB" else "—",
+            )
+            Spacer(Modifier.height(8.dp))
+            DotGraph(
+                values = mon.swapHist.values(),
+                max = 100f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                dotColor = accent,
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Panel("NETWORK") {
+            PanelRow("DOWN", formatBps(mon.net.rxBps), showDivider = false)
+            Spacer(Modifier.height(8.dp))
+            DotGraph(
+                values = mon.rxHist.values(),
+                max = rxMax,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                dotColor = accent,
+            )
+            Spacer(Modifier.height(14.dp))
+            PanelRow("UP", formatBps(mon.net.txBps))
+            Spacer(Modifier.height(8.dp))
+            DotGraph(
+                values = mon.txHist.values(),
+                max = txMax,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                dotColor = accent,
+            )
+        }
+
         FooterClearance()
     }
 }
@@ -887,12 +940,14 @@ private fun MonContent(mon: MonitorState, tick: Int, accent: Color) {
 // grants a normal app. Sorted desc, refreshed every 3s.
 // ---------------------------------------------------------------------------
 @Composable
-private fun ProcContent(ram: RamInfo, tick: Int) {
+private fun ProcContent(ram: RamInfo, tick: Int, cachedRows: List<ProcEntry> = emptyList()) {
     val context = LocalContext.current
     var shizukuReady by remember { mutableStateOf(false) }
     var shizukuPresent by remember { mutableStateOf(false) }
     var usageOk by remember { mutableStateOf(false) }
-    var rows by remember { mutableStateOf<List<ProcEntry>>(emptyList()) }
+    // Seeded from the cold-start cache so the table is populated before the
+    // first Shizuku/usage query lands.
+    var rows by remember { mutableStateOf(cachedRows) }
 
     DisposableEffect(context) {
         val listener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
