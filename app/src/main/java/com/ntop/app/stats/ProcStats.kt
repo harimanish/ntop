@@ -128,9 +128,13 @@ fun usageRanking(context: Context, limit: Int = 20): List<ProcEntry> {
     return try {
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
-        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 24 * 3600_000L, now)
+        // queryAndAggregateUsageStats, not queryUsageStats: the raw variant
+        // returns one UsageStats per daily bucket, so a 24h window that crosses
+        // midnight listed the same app twice with split totals (and the
+        // per-bucket take() could crowd real top apps out of the table).
+        val stats = usm.queryAndAggregateUsageStats(now - 24 * 3600_000L, now)
         val pm = context.packageManager
-        stats.orEmpty()
+        stats.values
             .filter { it.totalTimeInForeground > 60_000L }
             .sortedByDescending { it.totalTimeInForeground }
             .take(limit)

@@ -1,13 +1,5 @@
 package com.ntop.app.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,10 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.MonitorHeart
@@ -34,14 +25,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
@@ -65,26 +52,12 @@ fun MicroLabel(text: String, color: Color = Color.White) {
 }
 
 @Composable
-fun FluentBackground(level: Int) {
+fun FluentBackground() {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(NothingBlack),
     )
-}
-
-@Composable
-fun GlassCard(content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(NothingBlackSoft)
-            .border(1.dp, LucentBorder, RoundedCornerShape(24.dp))
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-    ) {
-        content()
-    }
 }
 
 @Composable
@@ -132,7 +105,7 @@ fun FluentBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FluentTab(
-                icon = Icons.Filled.ShowChart,
+                icon = Icons.AutoMirrored.Filled.ShowChart,
                 contentDescription = "Monitor",
                 selected = currentRoute == "mon",
                 accent = accent,
@@ -207,33 +180,6 @@ fun GlassChargePill(charging: Boolean, source: String) {
             fontWeight = FontWeight.Medium,
             color = fg,
         )
-    }
-}
-
-@Composable
-fun GlassGlyphDots(level: Int, cells: Int = 20) {
-    val animatedLevel by animateIntAsState(
-        targetValue = level,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-        label = "level",
-    )
-    val lit = (animatedLevel * cells / 100f).toInt().coerceIn(0, cells)
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(14.dp),
-    ) {
-        val gap = size.width / cells
-        val r = 5.dp.toPx().coerceAtMost(gap / 2 - 2.dp.toPx())
-        for (i in 0 until cells) {
-            val cx = gap * i + gap / 2
-            val isLit = i < lit
-            drawCircle(
-                color = if (isLit) Color.White else Color.White.copy(alpha = 0.14f),
-                radius = r,
-                center = Offset(cx, size.height / 2),
-            )
-        }
     }
 }
 

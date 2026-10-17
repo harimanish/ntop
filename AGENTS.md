@@ -1,14 +1,16 @@
 # AGENTS.md — ntop contributor context
 
 `ntop` — btop-style system monitor for Nothing phones. Package
-`com.ntop.app`, version 0.2.1. Tabs: MON / PROC / BATT / SYS (Compose
+`com.ntop.app`, version 0.4.0. Tabs: MON / PROC / BATT / SYS (Compose
 `HorizontalPager` + `FluentBottomBar`, Nothing monochrome theme, Geist
 fonts, red accent only on charging pill/dot).
 
 ## Build & verify
 
 - Toolchain: AGP 8.7.3, Kotlin 2.1.20, Gradle 8.11.1, Java 17,
-  `compileSdk/targetSdk 36`, `minSdk 31`. No system gradle — use `./gradlew`.
+  `compileSdk/targetSdk 36`, `minSdk 33`. No system gradle — use `./gradlew`.
+  The Glyph Matrix SDK AAR (`app/libs/glyph-matrix-sdk-2.0.aar`) is
+  gitignored: fresh worktrees/clones must copy it in before the first build.
 - Debug: `./gradlew :app:assembleDebug`, install
   `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
 - Verify on device with screenshots:

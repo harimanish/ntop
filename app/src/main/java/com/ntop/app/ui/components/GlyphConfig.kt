@@ -49,9 +49,8 @@ import com.ntop.app.ui.theme.Muted
 import com.ntop.app.ui.theme.NothingRed
 import kotlinx.coroutines.launch
 
-// No cap: the app the user actually wants (their music player) is typically
-// late in the alphabet, and a truncated list hid exactly the row they needed.
-// The list lives in a scrolling Column, so the cost is just composables.
+// 64 rows of small composables in one scrolling Column keeps the section
+// cheap; the cap only trims the tail of the alphabetically sorted list.
 private const val APP_LIMIT = 64
 
 /** Tapping an app cycles its assignment; [GlyphMode] order is the cycle order. */

@@ -61,7 +61,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -83,10 +82,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.ntop.app.ui.components.FluentBackground
-import com.ntop.app.ui.components.GlassCard
 import com.ntop.app.ui.components.GlassCardVariant
 import com.ntop.app.ui.components.GlassChargePill
-import com.ntop.app.ui.components.GlassGlyphDots
 import com.ntop.app.ui.components.Panel
 import com.ntop.app.ui.components.PanelRow
 import com.ntop.app.ui.components.DotGraph
@@ -95,8 +92,6 @@ import com.ntop.app.ui.components.GlyphConfigSection
 import com.ntop.app.ui.components.GlassTelemetryRow
 import com.ntop.app.ui.components.Phone3Render
 import com.ntop.app.ui.components.FluentBottomBar
-import com.ntop.app.ui.components.GraphCard
-import com.ntop.app.ui.components.CoreBars
 import com.ntop.app.ui.components.SpecGridCell
 import com.ntop.app.ui.components.MicroLabel
 import com.ntop.app.ui.components.resolveDeviceRender
@@ -460,13 +455,12 @@ fun BatteryScreen() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    AppShell(info = info, ram = ram, mon = mon, health = health, tick = loopN, cachedProc = procRows)
+    AppShell(info = info, mon = mon, health = health, tick = loopN, cachedProc = procRows)
 }
 
 @Composable
 private fun AppShell(
     info: BatteryInfo,
-    ram: RamInfo,
     mon: MonitorState,
     health: BatteryHealth?,
     tick: Int,
@@ -484,6 +478,21 @@ private fun AppShell(
     )
     val accent = AccentColors.getOrElse(theme.accentIdx) { AccentColors[0] }
 
+    // Appearance sliders preview locally while dragging; the DataStore write
+    // happens once on release (see SysContent). The draft is cleared only
+    // after the stored value flows back, so the bar never snaps to the old
+    // value in the gap between commit and confirmation.
+    var barAlphaDraft by remember { mutableStateOf<Float?>(null) }
+    var blurDraft by remember { mutableStateOf<Float?>(null) }
+    val barAlpha = barAlphaDraft ?: theme.barAlphaPct.toFloat()
+    val blurDp = blurDraft ?: theme.blurDp.toFloat()
+    LaunchedEffect(theme.barAlphaPct) {
+        if (barAlphaDraft?.toInt() == theme.barAlphaPct) barAlphaDraft = null
+    }
+    LaunchedEffect(theme.blurDp) {
+        if (blurDraft?.toInt() == theme.blurDp) blurDraft = null
+    }
+
     // Overlay shell: pages fill the screen down to the gesture edge so scroll
     // content visibly passes behind the floating frosted bar.
     Box(
@@ -492,7 +501,7 @@ private fun AppShell(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        FluentBackground(level = info.level.coerceIn(0, 100))
+        FluentBackground()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -508,8 +517,19 @@ private fun AppShell(
             ) { page ->
                 when (routes[page]) {
                     "mon" -> MonContent(mon, tick, accent)
-                    "proc" -> ProcContent(ram, tick, cachedProc)
-                    "sys" -> SysContent(info, mon, theme, health)
+                    "proc" -> ProcContent(tick, cachedProc)
+                    "sys" -> SysContent(
+                        info = info,
+                        mon = mon,
+                        theme = theme,
+                        health = health,
+                        barAlpha = barAlpha,
+                        blurDp = blurDp,
+                        onBarAlphaChange = { barAlphaDraft = it },
+                        onBarAlphaCommit = { scope.launch { setBarAlpha(context, it.toInt()) } },
+                        onBlurChange = { blurDraft = it },
+                        onBlurCommit = { scope.launch { setBlurDp(context, it.toInt()) } },
+                    )
                     else -> BattContent(info, health, mon, tick)
                 }
             }
@@ -525,8 +545,8 @@ private fun AppShell(
             FluentBottomBar(
                 currentRoute = route,
                 hazeState = hazeState,
-                barAlpha = theme.barAlphaPct / 100f,
-                blurDp = theme.blurDp,
+                barAlpha = barAlpha / 100f,
+                blurDp = blurDp.toInt(),
                 accent = accent,
                 onSelect = { dest ->
                     val page = routes.indexOf(dest).takeIf { it >= 0 } ?: 0
@@ -550,68 +570,6 @@ private fun FooterClearance() {
 @Composable
 private fun EntranceItem(delayMs: Int, content: @Composable () -> Unit) {
     content()
-}
-
-// ---------------------------------------------------------------------------
-// HOME: live overview — hero %, charging pill, Glyph dots.
-@Composable
-private fun HomeContent(info: BatteryInfo) {
-    val animatedLevel by animateIntAsState(
-        targetValue = info.level.coerceIn(0, 100),
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-        label = "level",
-    )
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Spacer(Modifier.height(24.dp))
-        EntranceItem(0) { MicroLabel("BATTERY") }
-        Spacer(Modifier.height(8.dp))
-        EntranceItem(60) {
-            GlassCardVariant {
-                Text(
-                    text = if (animatedLevel >= 0) "${animatedLevel}%" else "--%",
-                    style = MaterialTheme.typography.displayLarge,
-                    color = Color.White,
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        EntranceItem(120) { GlassChargePill(charging = info.charging, source = info.source) }
-
-        Spacer(Modifier.height(32.dp))
-        // Glyph Matrix homage: segmented dot progress, 20 cells.
-        EntranceItem(180) { GlassGlyphDots(level = info.level.coerceIn(0, 100)) }
-
-        Spacer(Modifier.height(32.dp))
-        // Device card: Phone (3) vector render + Build identity.
-        EntranceItem(240) {             DeviceRenderImage(level = info.level.coerceIn(0, 100)) }
-
-        Spacer(Modifier.height(32.dp))
-        // Lucent translucent card: frosted layer + hairline border.
-        EntranceItem(300) {
-            GlassCard {
-                GlassTelemetryRow("STATUS", if (info.charging) "CHARGING" else "DISCHARGING")
-                GlassTelemetryRow(
-                    "TEMP",
-                    if (info.tempC.isNaN()) "—" else "${info.tempC}°C",
-                )
-                GlassTelemetryRow(
-                    "VOLTAGE",
-                    if (info.voltageV.isNaN()) "—" else "${info.voltageV} V",
-                    last = true,
-                )
-            }
-        }
-        Spacer(Modifier.height(32.dp))
-        // Second DeviceCard at the page end: stays reachable above the
-        // floating bar and shows content drifting behind the frost.
-        EntranceItem(360) {             DeviceRenderImage(level = info.level.coerceIn(0, 100)) }
-
-        FooterClearance()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -940,7 +898,7 @@ private fun MonContent(mon: MonitorState, tick: Int, accent: Color) {
 // grants a normal app. Sorted desc, refreshed every 3s.
 // ---------------------------------------------------------------------------
 @Composable
-private fun ProcContent(ram: RamInfo, tick: Int, cachedRows: List<ProcEntry> = emptyList()) {
+private fun ProcContent(tick: Int, cachedRows: List<ProcEntry> = emptyList()) {
     val context = LocalContext.current
     var shizukuReady by remember { mutableStateOf(false) }
     var shizukuPresent by remember { mutableStateOf(false) }
@@ -998,7 +956,7 @@ private fun ProcContent(ram: RamInfo, tick: Int, cachedRows: List<ProcEntry> = e
         Spacer(Modifier.height(24.dp))
         MicroLabel(header)
         Spacer(Modifier.height(8.dp))
-        GlassCard {
+        GlassCardVariant {
             if (rows.isEmpty()) {
                 GlassTelemetryRow("PROCESSES", "—", last = true)
             } else {
@@ -1081,7 +1039,18 @@ private fun ProcContent(ram: RamInfo, tick: Int, cachedRows: List<ProcEntry> = e
 // SYS: device card + storage. RAM totals moved to the MON graphs.
 // ---------------------------------------------------------------------------
 @Composable
-private fun SysContent(info: BatteryInfo, mon: MonitorState, theme: ThemeSettings, health: BatteryHealth?) {
+private fun SysContent(
+    info: BatteryInfo,
+    mon: MonitorState,
+    theme: ThemeSettings,
+    health: BatteryHealth?,
+    barAlpha: Float,
+    blurDp: Float,
+    onBarAlphaChange: (Float) -> Unit,
+    onBarAlphaCommit: (Float) -> Unit,
+    onBlurChange: (Float) -> Unit,
+    onBlurCommit: (Float) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val storage = mon.storage
@@ -1189,18 +1158,20 @@ private fun SysContent(info: BatteryInfo, mon: MonitorState, theme: ThemeSetting
         MicroLabel("APPEARANCE")
         Spacer(Modifier.height(8.dp))
         GlassCardVariant {
-            MicroLabel("BAR TRANSPARENCY · ${theme.barAlphaPct}%", color = Muted)
+            MicroLabel("BAR TRANSPARENCY · ${barAlpha.toInt()}%", color = Muted)
             Slider(
-                value = theme.barAlphaPct.toFloat(),
-                onValueChange = { scope.launch { setBarAlpha(context, it.toInt()) } },
+                value = barAlpha,
+                onValueChange = onBarAlphaChange,
+                onValueChangeFinished = { onBarAlphaCommit(barAlpha) },
                 valueRange = BAR_ALPHA_MIN.toFloat()..BAR_ALPHA_MAX.toFloat(),
                 colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
             )
             Spacer(Modifier.height(4.dp))
-            MicroLabel("BLUR · ${theme.blurDp} DP", color = Muted)
+            MicroLabel("BLUR · ${blurDp.toInt()} DP", color = Muted)
             Slider(
-                value = theme.blurDp.toFloat(),
-                onValueChange = { scope.launch { setBlurDp(context, it.toInt()) } },
+                value = blurDp,
+                onValueChange = onBlurChange,
+                onValueChangeFinished = { onBlurCommit(blurDp) },
                 valueRange = BLUR_MIN.toFloat()..BLUR_MAX.toFloat(),
                 colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
             )
@@ -1234,7 +1205,7 @@ private fun SysContent(info: BatteryInfo, mon: MonitorState, theme: ThemeSetting
             MicroLabel("GLYPH MATRIX")
             Spacer(Modifier.height(8.dp))
             GlassCardVariant {
-                GlassTelemetryRow("TOY", "NTOP BATTERY · AOD")
+                GlassTelemetryRow("TOY", "NTOP · AOD")
                 GlassTelemetryRow(
                     "MATRIX",
                     "${glyphMatrixLength()}×${glyphMatrixLength()}",
@@ -1335,31 +1306,6 @@ private fun sampleHealth() = BatteryHealth(
     healthPct = 97.8f,
 )
 
-private fun sampleRam() = RamInfo(
-    totalMb = 12288,
-    availMb = 4096,
-    swapTotalMb = 4096,
-    swapFreeMb = 3072,
-    cachedMb = 2560,
-    thresholdMb = 1024,
-    lowMemory = false,
-    apps = listOf(
-        RamApp("system", 812),
-        RamApp("app", 356),
-        RamApp("surfaceflinger", 188),
-    ),
-)
-
-@Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
-@Composable
-private fun HomePreview() {
-    NtopTheme {
-        Surface(color = NothingBlack) {
-            HomeContent(info = sampleInfo())
-        }
-    }
-}
-
 @Preview(showBackground = true, backgroundColor = 0xFF0A0A0B)
 @Composable
 private fun BattPreview() {
@@ -1385,7 +1331,7 @@ private fun BattPreview() {
 private fun ProcPreview() {
     NtopTheme {
         Surface(color = NothingBlack) {
-            ProcContent(ram = sampleRam(), tick = 0)
+            ProcContent(tick = 0)
         }
     }
 }
