@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
@@ -296,7 +297,7 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
                         playing = playing,
                         live = live,
                         matrix = matrix,
-                        dimGrid = true,
+                        hardware = true,
                         wave = settings.wave,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -686,7 +687,7 @@ private fun LiveMatrixPreview(
     playing: Boolean,
     live: Boolean,
     matrix: Int,
-    dimGrid: Boolean,
+    hardware: Boolean,
     wave: GlyphWave = GlyphWave(),
     modifier: Modifier = Modifier,
 ) {
@@ -711,7 +712,7 @@ private fun LiveMatrixPreview(
         }
     }
 
-    MatrixPreview(data = data, matrix = matrix, dimGrid = dimGrid, modifier = modifier)
+    MatrixPreview(data = data, matrix = matrix, hardware = hardware, modifier = modifier)
 }
 
 /**
@@ -724,9 +725,9 @@ private const val P3_DISC_D = 0.1175f
 /**
  * Zoomed crop of the official render with the live frame drawn exactly over
  * the hardware disc. The crop is centred on the upper-right corner of the
- * phone so the disc reads clearly. MatrixPreview's lit circle spans 0.88 of
- * its box (cell quantisation), so the preview box is disc / 0.88 and the
- * container is clipped to the disc, keeping the black backdrop off the body.
+ * phone so the disc reads clearly. The lit cell field spans the whole
+ * preview box, so the box is the disc itself, clipped to the circle — the
+ * photo's own disc shows through around the LEDs.
  */
 @Composable
 private fun HeroDevice(
@@ -747,7 +748,7 @@ private fun HeroDevice(
     if (url == null || matrix != 25) {
         LiveMatrixPreview(
             kit = kit, mode = mode, username = username, pct = pct, watts = watts,
-            playing = playing, live = live, matrix = matrix, dimGrid = false,
+            playing = playing, live = live, matrix = matrix, hardware = false,
             wave = wave,
             modifier = Modifier.size(144.dp),
         )
@@ -800,7 +801,7 @@ private fun HeroDevice(
             }
         }
         val disc = canvas * P3_DISC_D
-        val box = disc / 0.88f
+        val box = disc
         Box(
             modifier = Modifier
                 .size(disc)
@@ -812,7 +813,7 @@ private fun HeroDevice(
         ) {
             LiveMatrixPreview(
                 kit = kit, mode = mode, username = username, pct = pct, watts = watts,
-                playing = playing, live = live, matrix = matrix, dimGrid = false,
+                playing = playing, live = live, matrix = matrix, hardware = false,
                 wave = wave,
                 modifier = Modifier
                     .size(box)
@@ -823,16 +824,21 @@ private fun HeroDevice(
 }
 
 /**
- * The matrix as hardware shows it: square white LEDs on a black disc, lit
- * cells at their rendered brightness, unlit cells faint. Nothing is drawn
- * outside the disc — the hardware has no LEDs there.
+ * The matrix as hardware shows it, drawn in the Glyph Museum editor's style:
+ * identical rounded-square LEDs whether lit or not — brightness is the only
+ * thing that changes — sitting on a faint disc substrate with a thin rim.
+ * With [hardware] off, only lit cells are drawn, for overlaying on the
+ * device render where the photo's own disc shows through.
+ *
+ * LEDs are kept when their centre falls inside the disc (half of the box),
+ * which is the museum's rule, so the outermost LEDs stop exactly at the rim.
  */
 @Composable
 fun MatrixPreview(
     data: IntArray,
     matrix: Int,
     modifier: Modifier = Modifier,
-    dimGrid: Boolean = true,
+    hardware: Boolean = true,
 ) {
     Canvas(modifier) {
         if (matrix <= 0) return@Canvas
@@ -841,42 +847,45 @@ fun MatrixPreview(
         val originX = (size.width - s) / 2f
         val originY = (size.height - s) / 2f
         val centre = Offset(originX + s / 2f, originY + s / 2f)
-
-        drawCircle(color = Color.Black, radius = s / 2f, center = centre)
+        val radius = s / 2f
         val cell = s / matrix
-        val litSide = cell * 0.68f
-        val dimSide = litSide * 0.8f
+        // Museum numbers: LED side 0.80 of the pitch, corner radius a
+        // quarter of the side, substrate ~7% white, rim ~30%.
+        val side = cell * 0.80f
+        val corner = CornerRadius(side * 0.25f)
+        if (hardware) {
+            drawCircle(color = Color.White.copy(alpha = 0.07f), radius = radius, center = centre)
+            drawCircle(
+                color = Color.White.copy(alpha = 0.30f),
+                radius = radius,
+                center = centre,
+                style = Stroke(width = 1.dp.toPx()),
+            )
+        }
         val cells = if (data.size == matrix * matrix) data else IntArray(matrix * matrix)
         for (j in 0 until matrix) {
             for (i in 0 until matrix) {
                 val fx = (i + 0.5f) / matrix * 2f - 1f
                 val fy = (j + 0.5f) / matrix * 2f - 1f
-                val inside = fx * fx + fy * fy <= 0.81f
+                if (fx * fx + fy * fy > 1f) continue
                 val v = cells[j * matrix + i]
-                val center = Offset(originX + (i + 0.5f) * cell, originY + (j + 0.5f) * cell)
-                if (!inside) continue
-                if (v > 0) {
-                    val alpha = (0.35f + 0.65f * (v / 255f)).coerceAtMost(1f)
-                    drawRect(
-                        color = Color.White.copy(alpha = alpha),
-                        topLeft = Offset(center.x - litSide / 2f, center.y - litSide / 2f),
-                        size = Size(litSide, litSide),
-                    )
-                } else if (dimGrid) {
-                    drawRect(
-                        color = Color.White.copy(alpha = 0.12f),
-                        topLeft = Offset(center.x - dimSide / 2f, center.y - dimSide / 2f),
-                        size = Size(dimSide, dimSide),
-                    )
-                }
+                if (v <= 0 && !hardware) continue
+                drawRoundRect(
+                    color = if (v > 0) {
+                        Color.White.copy(alpha = (v / 255f).coerceIn(0f, 1f))
+                    } else {
+                        // An unlit LED reads as a dark square in the substrate.
+                        Color.Black
+                    },
+                    topLeft = Offset(
+                        originX + i * cell + (cell - side) / 2f,
+                        originY + j * cell + (cell - side) / 2f,
+                    ),
+                    size = Size(side, side),
+                    cornerRadius = corner,
+                )
             }
         }
-        drawCircle(
-            color = Color.White.copy(alpha = 0.10f),
-            radius = s / 2f,
-            center = centre,
-            style = Stroke(width = 1.dp.toPx()),
-        )
     }
 }
 
@@ -985,7 +994,7 @@ private fun GroupRow(
         MatrixPreview(
             data = mini,
             matrix = matrix,
-            dimGrid = false,
+            hardware = false,
             modifier = Modifier.size(28.dp),
         )
         Spacer(Modifier.width(12.dp))

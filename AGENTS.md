@@ -94,9 +94,18 @@ fonts, red accent only on charging pill/dot).
   resamples the band in a symmetric V), sensitivity scales bars
   (`applyGain`), smoothing is the per-tick fall factor passed to
   `AudioCapture.bars(count, release, gain)`. The editor opens by tapping the
-  live preview in the hero card (Glyph Beat's gesture). The matrix is built
-  from **small square LEDs** — `MatrixPreview` draws 0.68-cell `drawRect`
-  squares, not circles.
+  live preview in the hero card (Glyph Beat's gesture).
+- **The preview is drawn to the Glyph Museum editor's measurements** (read
+  off `com.pauwma.glyphmuseum`'s 25×25 editor by pixel analysis of
+  screenshots): LEDs are identical rounded squares whether lit or off — one
+  `side = cell * 0.80f` and `CornerRadius(side * 0.25f)` for both, only the
+  alpha changes (`v / 255`, linear — the old 0.35..1.0 ramp lied). The disc
+  substrate is 7 % white with a 30 % rim, and unlit LEDs are drawn **black**
+  so they read as dark squares in the substrate, not faint white dots. A
+  cell is kept when its **centre** falls inside the disc (half the box) —
+  the museum's rule — so the outermost LEDs stop exactly at the rim.
+  `hardware = false` (hero overlay, group icons) draws lit cells only, and
+  the photo's own disc shows through.
 - Group glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
   `foregroundApp()` returns null and IN USE matching is silently ignored —
   the GLYPH tab shows a banner and a deep link to the settings screen.
@@ -163,12 +172,13 @@ fonts, red accent only on charging pill/dot).
   Offset.Zero)`. Phone (3) disc geometry, measured off the 2000 px CDN
   render: centre at 62.35 % / 15.15 % of canvas width, disc d 11.75 %; the
   544 dp crop is -245/-28 into a 144x240 dp viewport clipped to the disc.
-  `MatrixPreview`'s lit area spans 0.88 of its box (cell quantisation), so
-  the preview box is disc / 0.88.
+  The lit cell field spans the whole preview box, so the box is the disc
+  itself and the container clip is its circle.
 
 ## Open items (next session)
 
-- **None blocking.** The wave editor, square LEDs and the RECORD_AUDIO
+- **None blocking.** The wave editor, the museum-matched LED preview
+  (equal-size lit/unlit squares, substrate + rim) and the RECORD_AUDIO
   banner flow are all device-verified (in-app ALLOW -> `granted=true`,
   AUDIO row back to `PLAYING · LIVE`); test residue (wav, "lolili" group,
   defaults, charging toggle, screen timeout) has been cleaned from the
