@@ -31,9 +31,8 @@ fun glyphMatrixLength(): Int = try {
 class GlyphPreviewKit(private val context: Context, private val matrix: Int) {
     private val appContext = context.applicationContext
     private val smiley = SmileyRenderer(matrix)
-    private val bars = WaveformBars(matrix)
-    private val synth = WaveformSynth(if (matrix >= 25) 11 else 7)
-    private val barCount = if (matrix >= 25) 11 else 7
+    private val waves = WaveMatrix(matrix)
+    private val synth = WaveformSynth(matrix)
 
     private var marquee: UsernameMarquee? = null
     private var marqueeFor: String? = null
@@ -76,16 +75,20 @@ class GlyphPreviewKit(private val context: Context, private val matrix: Int) {
 
                 GlyphMode.WAVEFORM -> {
                     // Session-0 output-mix capture (the Glyph Beat route) when
-                    // the Visualizer attaches; synthetic bars only as a
+                    // the Visualizer attaches; synthetic levels only as a
                     // fallback on devices where it cannot.
-                    val real = if (AudioCapture.ensureStarted()) {
-                        AudioCapture.bars(barCount, wave.smoothing, wave.sensitivity)
+                    val w = wave
+                    val levels = if (AudioCapture.ensureStarted()) {
+                        if (w.style.spectrum) {
+                            AudioCapture.spectrum(matrix, w.smoothing, w.sensitivity)
+                        } else {
+                            AudioCapture.bars(matrix, w.smoothing, w.sensitivity)
+                        }
                     } else {
                         null
                     }
-                    val sample = real ?: applyGain(synth.update(playing), wave.sensitivity)
-                    val shaped = if (wave.mirror) mirrorSpectrum(sample) else sample
-                    builder.addTop(bars.render(shaped, BRIGHT_ON))
+                    val sample = levels ?: applyGain(synth.update(playing), w.sensitivity)
+                    builder.addTop(waves.render(w.style, sample, w.mirror))
                 }
 
                 GlyphMode.WATTS -> {

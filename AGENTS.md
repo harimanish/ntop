@@ -1,7 +1,7 @@
 # AGENTS.md — ntop contributor context
 
 `ntop` — btop-style system monitor for Nothing phones. Package
-`com.ntop.app`, version 0.4.1. Tabs: MON / PROC / BATT / SYS (Compose
+`com.ntop.app`, version 0.5.0. Tabs: MON / PROC / BATT / SYS (Compose
 `HorizontalPager` + `FluentBottomBar`, Nothing monochrome theme, Geist
 fonts, red accent only on charging pill/dot).
 
@@ -13,6 +13,12 @@ fonts, red accent only on charging pill/dot).
   gitignored: fresh worktrees/clones must copy it in before the first build.
 - Debug: `./gradlew :app:assembleDebug`, install
   `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+- The demo phone carries a **release-signed** install, so `adb install -r` of
+  the debug APK fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and the app
+  is not debuggable (no `run-as`). Build and install
+  `app/build/outputs/apk/release/app-release.apk` instead —
+  `keystore.properties` is in the repo, so signatures match and app data
+  survives.
 - Verify on device with screenshots:
   `adb exec-out screencap -p > /tmp/opencode/x.png` then Read it.
   If the screen is asleep: wake (`input keyevent KEYCODE_WAKEUP`),
@@ -88,13 +94,34 @@ fonts, red accent only on charging pill/dot).
   grant (or where the effect cannot attach) the toy falls back to the
   synthetic bars, still gated on the real play/pause signal from
   `AudioManager.activePlaybackConfigurations` (no permission needed).
-- WAVEFORM look is user-configurable: `GlyphWave(mirror, sensitivity,
-  smoothing)` in the Glyph DataStore, applied identically by the toy service
-  and the tab preview. Mirror = bass centre / treble edges (`mirrorSpectrum`
-  resamples the band in a symmetric V), sensitivity scales bars
-  (`applyGain`), smoothing is the per-tick fall factor passed to
-  `AudioCapture.bars(count, release, gain)`. The editor opens by tapping the
-  live preview in the hero card (Glyph Beat's gesture).
+- WAVEFORM is user-configurable — five `WaveStyle`s plus knobs, all in the
+  `GlyphWave` DataStore record and applied identically by the toy service
+  and the tab preview. **`GLOW` is the Glyph Beat reproduction**: the FFT
+  half of the session-0 capture drawn as grey bars mirrored around the
+  middle row (bass at the centre when mirror is on), tip-bright and
+  centre-dim (`glowAlpha`: 173 at the tips, 128 next to the centre row,
+  rising 9 per cell — values measured off the running app), every column
+  always lit at least in the centre cell. `BARS` is a bottom-up equaliser,
+  `WAVE` the raw samples (the old look), `DOTS` tips only, `PEAKS` dim bars
+  under a falling bright cap. Mirror mode and the fold apply to the
+  spectrum styles only (`mirrorSpectrum` resamples the band in a symmetric
+  V); sensitivity is a make-up gain (`applyGain` over the 0..100 levels);
+  smoothing is the per-tick fall factor for WAVE
+  (`AudioCapture.bars(count, release, gain)`) and maps to an EMA for the
+  spectrum (`AudioCapture.spectrum`). The editor opens by tapping the live
+  preview in the hero card (Glyph Beat's gesture).
+- Audio FFT gotchas, both learned on device: aggregate each log band by the
+  **mean** of its bins, never the max (the max pinned every loud band to
+  full scale — a flat plateau), and map `|X| / 255` **directly** — the
+  sample path's sqrt flattened the spectrum into a blob. Bands are
+  45 Hz .. min(16 kHz, 0.47·sr), log-spaced, from the `fft[2k]`/`fft[2k+1]`
+  real/imag pairs (DC and Nyquist share the first two bytes).
+- **The SDK bitmap → matrix conversion takes the RGB average of each pixel,
+  not the alpha** — and Android premultiplies bitmaps, so a grey must be
+  written as full-alpha RGB (`(0xFF shl 24) or value * 0x010101`) or the
+  alpha greys inflate to white. Kit frame values are 12-bit (0..4095), so
+  the preview divides by 4095; a `/255` map made every lit cell read full
+  white.
 - **The preview is drawn to the Glyph Museum editor's measurements** (read
   off `com.pauwma.glyphmuseum`'s 25×25 editor by pixel analysis of
   screenshots): LEDs are identical rounded squares whether lit or off — one
@@ -190,9 +217,12 @@ fonts, red accent only on charging pill/dot).
   demo phone.
 - **Physical Glyph matrix check** (only the user can do it): selecting a toy
   needs the physical Glyph button. Confirm the WAVEFORM look and mirror mode
-  on the real LEDs.
-- The editor was left at BASS · CENTRE / 2.96x / 59% smoothing on the demo
-  device — reset in the editor if defaults are wanted.
+  on the real LEDs, and which `WaveStyle` reads best there (GLOW's grey cells
+  are the hardware test of the 12-bit brightness ladder).
+- The editor was left at GLOW · BASS · CENTRE / 0.98x / 54% smoothing on the
+  demo device — 0.53x was tuned for the old sample-path scaling, the
+  spectrum path needs ~1.0x to show the Glyph Beat dome. Reset in the editor
+  if defaults are wanted.
 
 ## Conventions
 

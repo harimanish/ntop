@@ -83,7 +83,7 @@ class GlyphToyService : Service() {
     // created there. The renderer owns a reusable bitmap — a fresh one per
     // frame would allocate 90x a second inside the waveform loop.
     private var synth: WaveformSynth? = null
-    private var bars: WaveformBars? = null
+    private var waves: WaveMatrix? = null
     private var barCount = 11
     private var smiley: SmileyRenderer? = null
     private var animTick = 0
@@ -211,8 +211,8 @@ class GlyphToyService : Service() {
         }
         deviceId = id
         matrix = len
-        barCount = if (len >= 25) 11 else 7
-        bars = WaveformBars(len)
+        barCount = len
+        waves = WaveMatrix(len)
         synth = WaveformSynth(barCount)
         smiley = SmileyRenderer(len)
 
@@ -356,20 +356,26 @@ class GlyphToyService : Service() {
 
             GlyphMode.WAVEFORM -> {
                 val wf = synth ?: return
-                val renderer = bars ?: return
+                val renderer = waves ?: return
                 val wave = settings.wave
-                // Real samples from the output mix when the session-0
-                // Visualizer attaches; the synth stays as the fallback for
-                // devices where it cannot (and for silence checks).
-                val real = if (AudioCapture.ensureStarted()) {
-                    AudioCapture.bars(barCount, wave.smoothing, wave.sensitivity)
+                // Real audio from the output mix when the session-0 Visualizer
+                // attaches — FFT bands for the spectrum styles (the Glyph Beat
+                // route), samples for WAVE; the synth stays as the fallback.
+                val levels = if (AudioCapture.ensureStarted()) {
+                    if (wave.style.spectrum) {
+                        AudioCapture.spectrum(barCount, wave.smoothing, wave.sensitivity)
+                    } else {
+                        AudioCapture.bars(barCount, wave.smoothing, wave.sensitivity)
+                    }
                 } else {
                     null
                 }
-                val raw = real ?: applyGain(wf.update(audioPlaying(applicationContext)), wave.sensitivity)
-                val sample = if (wave.mirror) mirrorSpectrum(raw) else raw
-                val obj = renderer.render(sample, brightness)
-                m.pushFrame("W${sample.contentHashCode()}:$brightness") { addTop(obj) }
+                val sample = levels
+                    ?: applyGain(wf.update(audioPlaying(applicationContext)), wave.sensitivity)
+                val obj = renderer.render(wave.style, sample, wave.mirror, brightness)
+                m.pushFrame("W${sample.contentHashCode()}:${wave.style}:${wave.mirror}:$brightness") {
+                    addTop(obj)
+                }
             }
 
             GlyphMode.WATTS -> renderWatts(m, brightness)

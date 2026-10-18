@@ -71,8 +71,40 @@ data class GlyphGroup(
     val trigger: GlyphTrigger = GlyphTrigger.IN_USE,
 )
 
+/**
+ * Drawing styles for the WAVEFORM glyph, mirroring the Glyph Beat family.
+ *
+ * GLOW is the faithful reproduction of Glyph Beat's visualizer: the FFT
+ * spectrum (bass to the edges when mirror is on) drawn as soft grey bars
+ * around the middle row, brightest at the tips, with a lit centre line.
+ */
+enum class WaveStyle {
+    /** Glyph Beat's look: grey spectrum silhouette, bright tips, centre line. */
+    GLOW,
+
+    /** Classic equaliser: solid bars rising from the bottom edge. */
+    BARS,
+
+    /** The output-mix samples themselves, mirrored around the middle row. */
+    WAVE,
+
+    /** The spectrum as single dots — a dotted silhouette. */
+    DOTS,
+
+    /** Dim bars under a bright peak cap that holds, then falls. */
+    PEAKS;
+
+    /** True when the style needs the FFT spectrum rather than raw samples. */
+    val spectrum: Boolean get() = this != WAVE
+
+    companion object {
+        fun parse(s: String): WaveStyle? = entries.firstOrNull { it.name == s }
+    }
+}
+
 /** Look knobs for WAVEFORM, shared by the toy service and the tab preview. */
 data class GlyphWave(
+    val style: WaveStyle = WaveStyle.GLOW,
     val mirror: Boolean = false,
     val sensitivity: Float = 1f,
     val smoothing: Float = 0.72f,
@@ -117,6 +149,7 @@ private val KEY_CHARGING = booleanPreferencesKey("glyph_charging_enabled")
 private val KEY_DEFAULT_MODE = stringPreferencesKey("glyph_default_mode")
 private val KEY_GROUPS = stringPreferencesKey("glyph_groups")
 
+private val KEY_WAVE_STYLE = stringPreferencesKey("glyph_wave_style")
 private val KEY_WAVE_MIRROR = booleanPreferencesKey("glyph_wave_mirror")
 private val KEY_WAVE_SENSITIVITY = floatPreferencesKey("glyph_wave_sensitivity")
 private val KEY_WAVE_SMOOTHING = floatPreferencesKey("glyph_wave_smoothing")
@@ -135,6 +168,7 @@ fun glyphSettings(context: Context): Flow<GlyphSettings> = context.glyphStore.da
             // means the install predates groups and the old map gets migrated.
             groups = p[KEY_GROUPS]?.let(::decodeGroups) ?: legacyGroups(p[KEY_APP_MODES].orEmpty()),
             wave = GlyphWave(
+                style = WaveStyle.parse(p[KEY_WAVE_STYLE].orEmpty()) ?: WaveStyle.GLOW,
                 mirror = p[KEY_WAVE_MIRROR] ?: false,
                 sensitivity = p[KEY_WAVE_SENSITIVITY] ?: 1f,
                 smoothing = p[KEY_WAVE_SMOOTHING] ?: 0.72f,
@@ -160,6 +194,7 @@ suspend fun setGlyphGroups(context: Context, groups: List<GlyphGroup>) {
 
 suspend fun setGlyphWave(context: Context, wave: GlyphWave) {
     context.glyphStore.edit {
+        it[KEY_WAVE_STYLE] = wave.style.name
         it[KEY_WAVE_MIRROR] = wave.mirror
         it[KEY_WAVE_SENSITIVITY] = wave.sensitivity
         it[KEY_WAVE_SMOOTHING] = wave.smoothing

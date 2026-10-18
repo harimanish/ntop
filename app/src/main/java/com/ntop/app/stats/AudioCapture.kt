@@ -5,6 +5,7 @@ import android.media.audiofx.Visualizer
 import android.os.SystemClock
 import android.util.Log
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 // ---------------------------------------------------------------------------
@@ -16,8 +17,9 @@ import kotlin.math.sqrt
 // session 0 - the *global output mix* - which the reference documents as
 // "the Visualizer will apply to the output mix" and gates on
 // MODIFY_AUDIO_SETTINGS, a NORMAL permission granted at install with no
-// dialog. Glyph Beat drives its mirrored waveform exactly this way; we take
-// the waveform half of the same capture and leave FFT unused for now.
+// dialog. Glyph Beat drives its mirrored visualizer exactly this way: its
+// bars ride the FFT capture (see [spectrum]), so both halves of the callback
+// are kept - FFT for the spectrum styles, samples for the WAVE style.
 //
 // Callbacks arrive on the main looper at up to ~20 Hz; the handler only
 // copies the byte array. Peak extraction and smoothing happen on the caller's
@@ -52,8 +54,22 @@ object AudioCapture {
     @Volatile
     private var waveformAt = 0L
 
+    /** Latest FFT capture (real/imag pairs) and when it arrived. */
+    @Volatile
+    private var fft: ByteArray? = null
+
+    @Volatile
+    private var fftAt = 0L
+
     @Volatile
     private var live = false
+
+    /** Capture size in bytes and the stream's sampling rate in milliHertz. */
+    @Volatile
+    private var captureSize = 1024
+
+    @Volatile
+    private var sampleRateMhz = 48_000_000
 
     /** When the last init attempt ran — failures respect [RETRY_MS]. */
     @Volatile
@@ -61,6 +77,9 @@ object AudioCapture {
 
     /** Smoothed bar levels, reused every frame — render loop is single-threaded. */
     private var smoothed = FloatArray(0)
+
+    /** Smoothed spectrum bands, same contract as [smoothed]. */
+    private var specSmoothed = FloatArray(0)
 
     /** True when the output-mix Visualizer was created successfully. */
     fun isLive(): Boolean = live
@@ -84,6 +103,7 @@ object AudioCapture {
                 val range = Visualizer.getCaptureSizeRange()
                 val size = range.lastOrNull()?.takeIf { it > 0 } ?: 1024
                 v.setCaptureSize(size)
+                captureSize = size
                 v.setScalingMode(Visualizer.SCALING_MODE_NORMALIZED)
                 // getMaxCaptureRate is milliHertz; clamp to a sane 10-40 Hz.
                 val maxRate = Visualizer.getMaxCaptureRate()
@@ -105,11 +125,17 @@ object AudioCapture {
                             visualizer: Visualizer?,
                             fft: ByteArray?,
                             samplingRate: Int,
-                        ) = Unit
+                        ) {
+                            if (samplingRate > 0) sampleRateMhz = samplingRate
+                            if (fft != null) {
+                                this@AudioCapture.fft = fft.clone()
+                                fftAt = SystemClock.elapsedRealtime()
+                            }
+                        }
                     },
                     rate,
                     true,
-                    false,
+                    true,
                 )
                 if (v.setEnabled(true) != AudioEffect.SUCCESS) {
                     throw IllegalStateException("setEnabled returned an error")
@@ -170,6 +196,68 @@ object AudioCapture {
     }
 
     /**
+     * Output-mix FFT -> [count] log-spaced bands on the renderer's 0..100
+     * scale, or null when capture is unavailable (the caller keeps its
+     * synthetic fallback). This is the data behind the spectrum styles — the
+     * Glyph Beat mirrored visualizer; [bars] stays for the sample path (WAVE).
+     *
+     * [release] is the shared smoothing knob. Spectra glide both ways, so here
+     * it maps to a symmetric EMA (a high value reads as a slow, soft V).
+     */
+    fun spectrum(count: Int, release: Float, gain: Float): IntArray? {
+        if (!live) return null
+        if (count <= 0) return IntArray(0)
+        if (specSmoothed.size != count) specSmoothed = FloatArray(count)
+        val out = IntArray(count)
+        val f = fft
+        if (f == null || SystemClock.elapsedRealtime() - fftAt > STALE_MS) {
+            for (i in 0 until count) {
+                specSmoothed[i] *= release
+                if (specSmoothed[i] < 0.02f) specSmoothed[i] = 0f
+                out[i] = (specSmoothed[i] * 100f * gain).toInt().coerceIn(0, 100)
+            }
+            return out
+        }
+        // Visualizer FFT layout: fft[0] = real(DC), fft[1] = real(Nyquist),
+        // then real/imag pairs for bins 1..size/2-1; bin k is at k*sr/size Hz.
+        val size = minOf(captureSize, f.size).coerceAtLeast(4)
+        val half = size / 2
+        val sr = (sampleRateMhz / 1000f).takeIf { it >= 8_000f } ?: 48_000f
+        val fMin = 45f
+        val fMax = minOf(16_000f, sr * 0.47f)
+        val ratio = fMax / fMin
+        // High smoothing -> small steps: 0.5 jumps, 0.95 glides.
+        val k = (1f - release).coerceIn(0.05f, 0.5f) * 0.8f
+        for (b in 0 until count) {
+            val lo = fMin * ratio.pow(b.toFloat() / count)
+            val hi = fMin * ratio.pow((b + 1f) / count)
+            val k0 = (lo * size / sr).toInt().coerceIn(1, half - 1)
+            val k1 = (hi * size / sr).toInt().coerceIn(k0, half - 1)
+            // Mean of the band's bins, not the peak: the peak pinned every
+            // loud low band to full scale (a flat plateau), while the mean
+            // keeps the descending bass-to-treble shape the mirror turns
+            // into the Glyph Beat hump. Log bands are wide at the top, so
+            // the mean is also what tames the treble tail.
+            var sum = 0f
+            var bins = 0
+            for (bin in k0..k1) {
+                val re = f[2 * bin].toInt() and 0xFF
+                val im = f[2 * bin + 1].toInt() and 0xFF
+                sum += sqrt((re * re + im * im).toFloat())
+                bins++
+            }
+            val mag = if (bins > 0) sum / bins else 0f
+            // Direct magnitude ratio: the FFT means of loud bands sit near
+            // full scale, so the sample path's sqrt lifted everything into a
+            // flat blob. Sensitivity stays the user's make-up gain.
+            val level = (mag / 255f).coerceIn(0f, 1f) * 100f
+            specSmoothed[b] += (level - specSmoothed[b]) * k
+            out[b] = (specSmoothed[b] * gain).toInt().coerceIn(0, 100)
+        }
+        return out
+    }
+
+    /**
      * Releases the effect so a toy that stops binding does not keep the audio
      * path powered. The next [ensureStarted] recreates it.
      */
@@ -180,9 +268,12 @@ object AudioCapture {
             visualizer = null
             waveform = null
             waveformAt = 0L
+            fft = null
+            fftAt = 0L
             live = false
             lastAttempt = 0L
             smoothed = FloatArray(0)
+            specSmoothed = FloatArray(0)
         }
     }
 }

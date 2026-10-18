@@ -85,6 +85,7 @@ import com.ntop.app.stats.GlyphSettings
 import com.ntop.app.stats.GlyphTrigger
 import com.ntop.app.stats.GlyphWave
 import com.ntop.app.stats.MonitorState
+import com.ntop.app.stats.WaveStyle
 import com.ntop.app.stats.audioPlaying
 import com.ntop.app.stats.foregroundApp
 import com.ntop.app.stats.glyphMatrixLength
@@ -201,11 +202,14 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
     var editing by remember { mutableStateOf<GlyphGroup?>(null) }
     var fg by remember { mutableStateOf<String?>(null) }
     var waveEdit by remember { mutableStateOf(false) }
+    var waveStyle by remember(settings.wave) { mutableStateOf(settings.wave.style) }
     var waveMirror by remember(settings.wave) { mutableStateOf(settings.wave.mirror) }
     var sensDraft by remember(settings.wave) { mutableStateOf(settings.wave.sensitivity) }
     var smoothDraft by remember(settings.wave) { mutableStateOf(settings.wave.smoothing) }
     val commitWave: () -> Unit = {
-        scope.launch { setGlyphWave(context, GlyphWave(waveMirror, sensDraft, smoothDraft)) }
+        scope.launch {
+            setGlyphWave(context, GlyphWave(waveStyle, waveMirror, sensDraft, smoothDraft))
+        }
     }
     var audioGranted by remember {
         mutableStateOf(
@@ -328,6 +332,22 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
             }
             if (waveEdit) {
                 Spacer(Modifier.height(6.dp))
+                // Style first: which shape the matrix draws. GLOW is the
+                // Glyph Beat reproduction; the rest are its family.
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WaveStyle.entries.forEach { s ->
+                        ModePill(
+                            label = s.name,
+                            selected = waveStyle == s,
+                            accent = accent,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            waveStyle = s
+                            commitWave()
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ModePill(
                         label = "LEFT · RIGHT",
@@ -867,7 +887,10 @@ fun MatrixPreview(
                 if (v <= 0 && !hardware) continue
                 drawRoundRect(
                     color = if (v > 0) {
-                        Color.White.copy(alpha = (v / 255f).coerceIn(0f, 1f))
+                        // The kit's frame values are 12-bit (0..4095, the
+                        // hardware scale), so this is v/4095 — a v/255 ramp
+                        // saturated every lit cell to full white.
+                        Color.White.copy(alpha = (v / 4095f).coerceIn(0f, 1f))
                     } else {
                         // An unlit LED stays faintly visible on the black panel.
                         Color.White.copy(alpha = 0.07f)

@@ -78,41 +78,95 @@ class UsernameMarquee(
 }
 
 /**
- * Vertical bar waveform. Each bar is centred, so the shape reads as symmetric
- * around the horizontal midline like the built-in Glyph Beat toy.
+ * Matrix-sized renderer for the WAVEFORM glyph: one 1px column per matrix
+ * column, one value per column in the renderer's 0..100 scale.
+ *
+ * GLOW reproduces Glyph Beat's visualizer — soft grey bars mirrored around
+ * the middle row, brightest at the tips, with the centre row lit as a
+ * baseline — while the other styles reuse the same levels for a different
+ * shape. The mirror fold is a spectrum idea (bass to the centre, treble to
+ * the edges); the time-domain WAVE style keeps its own orientation.
  */
-class WaveformBars(
+class WaveMatrix(
     private val matrix: Int,
 ) {
     private val window = Bitmap.createBitmap(matrix, matrix, Bitmap.Config.ARGB_8888)
-    private val canvas = Canvas(window)
-    private val paint = Paint().apply { color = Color.WHITE }
 
-    private val barWidth: Int = (matrix / 16f).toInt().coerceAtLeast(1)
-    private val gap: Int = (barWidth * 0.6f).toInt().coerceAtLeast(1)
-    private val centreY: Float = matrix / 2f
+    /** Falling caps for PEAKS: one per column, kept across frames. */
+    private val peaks = FloatArray(matrix)
 
-    fun render(bars: IntArray, brightness: Int = BRIGHT_ON): GlyphMatrixObject {
-        canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-        val pitch = barWidth + gap
-        val total = bars.size * pitch - gap
-        var x = (matrix - total) / 2
-        for (v in bars) {
-            val h = ((v.coerceIn(0, 100) / 100f) * (matrix / 2f - 1f)).toInt().coerceAtLeast(1)
-            canvas.drawRect(
-                x.toFloat(),
-                centreY - h,
-                (x + barWidth).toFloat(),
-                centreY + h,
-                paint,
-            )
-            x += pitch
+    private val centre = matrix / 2
+    private val halfMax = ((matrix - 1) / 2 - 1).coerceAtLeast(1)
+
+    fun render(
+        style: WaveStyle,
+        levels: IntArray,
+        mirror: Boolean = false,
+        brightness: Int = BRIGHT_ON,
+    ): GlyphMatrixObject {
+        val cols = IntArray(matrix) { i -> (levels.getOrNull(i) ?: 0).coerceIn(0, 100) }
+        val shaped = if (mirror && style.spectrum) mirrorSpectrum(cols) else cols
+        window.eraseColor(Color.TRANSPARENT)
+        for (x in 0 until matrix) {
+            val lvl = shaped[x]
+            if (style == WaveStyle.BARS) {
+                // Classic equaliser: solid bar rising from the bottom edge.
+                val h = (lvl / 100f * (matrix - 1)).roundToInt().coerceIn(0, matrix - 1)
+                for (d in 0..h) px(x, matrix - 1 - d, 235)
+                continue
+            }
+            val half = barHalf(lvl)
+            when (style) {
+                WaveStyle.GLOW -> for (d in -half..half) {
+                    px(x, centre + d, glowAlpha(abs(d)))
+                }
+
+                WaveStyle.PEAKS -> {
+                    for (d in -half..half) px(x, centre + d, 80)
+                    peaks[x] = maxOf(half.toFloat(), peaks[x] - 1.1f).coerceAtLeast(0f)
+                    val cap = peaks[x].roundToInt().coerceIn(0, halfMax)
+                    px(x, centre + cap, 235)
+                    px(x, centre - cap, 235)
+                }
+
+                WaveStyle.DOTS -> {
+                    px(x, centre, 60)
+                    px(x, centre + half, 255)
+                    if (half > 0) px(x, centre - half, 255)
+                }
+
+                // WAVE and anything unmapped: solid mirrored bar.
+                else -> for (d in -half..half) px(x, centre + d, 235)
+            }
         }
         return GlyphMatrixObject.Builder()
             .setImageSource(window)
             .setPosition(0, 0)
             .setBrightness(brightness)
             .build()
+    }
+
+    /** Half-height in cells for a 0..100 level, capped short of the rim. */
+    private fun barHalf(level: Int): Int =
+        (level / 100f * halfMax).roundToInt().coerceIn(0, halfMax)
+
+    /**
+     * Glyph Beat's vertical falloff, read off the running app's card: tips at
+     * 173/255, dimming to ~128 one cell in from the tip; the centre row is
+     * lit again as the baseline.
+     */
+    private fun glowAlpha(d: Int): Int =
+        if (d == 0) 173 else 128 + (d - 1).coerceAtMost(5) * 9
+
+    private fun px(x: Int, y: Int, alpha: Int) {
+        if (x in 0 until matrix && y in 0 until matrix) {
+            // The SDK's converter reads the *RGB average* of each pixel, not
+            // the alpha (verified in the AAR bytecode), and Android bitmaps
+            // premultiply — so a grey with full alpha is the only encoding
+            // that survives as a dim cell.
+            val v = alpha.coerceIn(0, 255)
+            window.setPixel(x, y, (0xFF shl 24) or (v shl 16) or (v shl 8) or v)
+        }
     }
 }
 
