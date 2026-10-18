@@ -226,8 +226,10 @@ object AudioCapture {
         val fMin = 45f
         val fMax = minOf(16_000f, sr * 0.47f)
         val ratio = fMax / fMin
-        // High smoothing -> small steps: 0.5 jumps, 0.95 glides.
-        val k = (1f - release).coerceIn(0.05f, 0.5f) * 0.8f
+        // High smoothing -> small steps: 0.5 jumps, 0.95 glides. k = 1 - release
+        // gives the spectrum the same per-tick time constant as the sample
+        // path's fall factor, so a slider stop feels identical in every style.
+        val k = (1f - release).coerceIn(0.05f, 0.5f)
         for (b in 0 until count) {
             val lo = fMin * ratio.pow(b.toFloat() / count)
             val hi = fMin * ratio.pow((b + 1f) / count)

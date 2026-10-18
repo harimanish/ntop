@@ -107,9 +107,14 @@ fonts, red accent only on charging pill/dot).
   spectrum styles only (`mirrorSpectrum` resamples the band in a symmetric
   V); sensitivity is a make-up gain (`applyGain` over the 0..100 levels);
   smoothing is the per-tick fall factor for WAVE
-  (`AudioCapture.bars(count, release, gain)`) and maps to an EMA for the
-  spectrum (`AudioCapture.spectrum`). The editor opens by tapping the live
-  preview in the hero card (Glyph Beat's gesture).
+  (`AudioCapture.bars(count, release, gain)`) and `k = 1 - release` for the
+  spectrum's EMA — identical time constants (~0.1 s to ~1.4 s across the
+  0.5..0.95 track). Both sliders are calibrated on device: sensitivity
+  0.5x..2x (the mirrored spectrum is already at the disc's edge around 1.0x
+  at normal listening level and all plateau above ~1.3x, so the top half is
+  make-up gain for quiet material), and the smoothing label shows the
+  percentage of its own track, not of 1.0. The editor opens by tapping the
+  live preview in the hero card (Glyph Beat's gesture).
 - Audio FFT gotchas, both learned on device: aggregate each log band by the
   **mean** of its bins, never the max (the max pinned every loud band to
   full scale — a flat plateau), and map `|X| / 255` **directly** — the

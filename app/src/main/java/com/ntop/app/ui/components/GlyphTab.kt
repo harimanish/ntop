@@ -377,11 +377,20 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
                     value = sensDraft,
                     onValueChange = { sensDraft = it },
                     onValueChangeFinished = { commitWave() },
-                    valueRange = 0.5f..3f,
+                    // 0.5x..2x is the calibrated travel: the spectrum already
+                    // saturates around 1.3x at the device's normal listening
+                    // level, so the top half is make-up gain for quiet tracks.
+                    valueRange = 0.5f..2f,
                     colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
                 )
                 Spacer(Modifier.height(2.dp))
-                MicroLabel("SMOOTHING · ${(smoothDraft * 100).toInt()}%", color = Muted)
+                MicroLabel(
+                    // Percentage of the track, not of 1.0: the stored release
+                    // factor (0.5..0.95) means nothing to a user, and "54%"
+                    // next to a 50%-placed knob was doubly confusing.
+                    "SMOOTHING · ${((smoothDraft - 0.5f) / 0.45f * 100f).toInt()}%",
+                    color = Muted,
+                )
                 Slider(
                     value = smoothDraft,
                     onValueChange = { smoothDraft = it },
