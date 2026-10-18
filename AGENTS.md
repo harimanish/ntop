@@ -99,13 +99,15 @@ fonts, red accent only on charging pill/dot).
   off `com.pauwma.glyphmuseum`'s 25×25 editor by pixel analysis of
   screenshots): LEDs are identical rounded squares whether lit or off — one
   `side = cell * 0.80f` and `CornerRadius(side * 0.25f)` for both, only the
-  alpha changes (`v / 255`, linear — the old 0.35..1.0 ramp lied). The disc
-  substrate is 7 % white with a 30 % rim, and unlit LEDs are drawn **black**
-  so they read as dark squares in the substrate, not faint white dots. A
-  cell is kept when its **centre** falls inside the disc (half the box) —
-  the museum's rule — so the outermost LEDs stop exactly at the rim.
-  `hardware = false` (hero overlay, group icons) draws lit cells only, and
-  the photo's own disc shows through.
+  alpha changes (`v / 255`, linear — the old 0.35..1.0 ramp lied). The panel
+  is a **black disc** (user's call, over the museum's grey substrate) with a
+  30 % rim, and unlit LEDs are drawn at 7 % white so off cells read as dim
+  squares on black — the museum card's off state. The LED grid is inset
+  **half a cell per side** (`field = s * (matrix - 1f) / matrix`, grid
+  centred in the box) and cells are kept when their centre is within
+  `matrix / 2f - 0.5f` cells of the middle: with the old "centre inside the
+  disc" rule the rim touched the outermost pixels, which the user flagged.
+  `hardware = false` (group icons) draws lit cells only.
 - Group glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
   `foregroundApp()` returns null and IN USE matching is silently ignored —
   the GLYPH tab shows a banner and a deep link to the settings screen.
@@ -170,15 +172,18 @@ fonts, red accent only on charging pill/dot).
   `(drawable as BitmapDrawable).bitmap`, drawn on a `Canvas` with
   `translate(-cropX, -cropY)` + `scale(canvasPx / bmp.width, pivot =
   Offset.Zero)`. Phone (3) disc geometry, measured off the 2000 px CDN
-  render: centre at 62.35 % / 15.15 % of canvas width, disc d 11.75 %; the
-  544 dp crop is -245/-28 into a 144x240 dp viewport clipped to the disc.
-  The lit cell field spans the whole preview box, so the box is the disc
-  itself and the container clip is its circle.
+  render: centre at 62.35 % / 15.15 % of canvas width, disc d 11.75 %. One
+  visual, not two: the render is scaled to a 906 dp canvas (the 544 dp
+  baseline x 5/3, crop -408/-47, viewport 240x400 dp) and the **full
+  preview — panel, LEDs and rim — is drawn directly on the photo's disc**
+  (box = disc, no clip: the preview *is* the disc). Tapping the image opens
+  the wave editor.
 
 ## Open items (next session)
 
 - **None blocking.** The wave editor, the museum-matched LED preview
-  (equal-size lit/unlit squares, substrate + rim) and the RECORD_AUDIO
+  (equal-size lit/unlit squares, black panel + rim, preview drawn on the
+  hero render) and the RECORD_AUDIO
   banner flow are all device-verified (in-app ALLOW -> `granted=true`,
   AUDIO row back to `PLAYING · LIVE`); test residue (wav, "lolili" group,
   defaults, charging toggle, screen timeout) has been cleaned from the

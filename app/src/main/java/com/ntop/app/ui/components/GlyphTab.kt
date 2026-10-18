@@ -265,7 +265,19 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
         // frame sits exactly over the hardware disc (geometry measured off
         // the CDN image; unknown devices get the plate without a photo).
         GlassCardVariant {
-            Row(verticalAlignment = Alignment.Top) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    MicroLabel(deviceName)
+                    Spacer(Modifier.height(2.dp))
+                    MicroLabel("${matrix}×${matrix} MATRIX", color = Muted)
+                }
+                LiveToggle(live = live, accent = accent) { live = !live }
+            }
+            Spacer(Modifier.height(12.dp))
+            // One visual: the render blown up with the live preview sitting
+            // directly on its glyph disc. Tapping it opens the waveform look
+            // editor, the way the museum's editor works.
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 HeroDevice(
                     kit = kit,
                     mode = resolved,
@@ -276,36 +288,8 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
                     live = live,
                     matrix = matrix,
                     wave = settings.wave,
+                    onTap = { waveEdit = !waveEdit },
                 )
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            MicroLabel(deviceName)
-                            Spacer(Modifier.height(2.dp))
-                            MicroLabel("${matrix}×${matrix} MATRIX", color = Muted)
-                        }
-                        LiveToggle(live = live, accent = accent) { live = !live }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    LiveMatrixPreview(
-                        kit = kit,
-                        mode = resolved,
-                        username = username,
-                        pct = info.level,
-                        watts = glyphWatts,
-                        playing = playing,
-                        live = live,
-                        matrix = matrix,
-                        hardware = true,
-                        wave = settings.wave,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(role = Role.Button) { waveEdit = !waveEdit },
-                    )
-                }
             }
             Spacer(Modifier.height(12.dp))
             Row(
@@ -723,11 +707,11 @@ private const val P3_DISC_CY = 0.1515f
 private const val P3_DISC_D = 0.1175f
 
 /**
- * Zoomed crop of the official render with the live frame drawn exactly over
- * the hardware disc. The crop is centred on the upper-right corner of the
- * phone so the disc reads clearly. The lit cell field spans the whole
- * preview box, so the box is the disc itself, clipped to the circle — the
- * photo's own disc shows through around the LEDs.
+ * The render blown up large, with the live preview sitting directly on its
+ * glyph disc: same substrate, LEDs and rim as the tab preview — one
+ * component, this is the image underneath it. Geometry is the measured
+ * 544 dp baseline scaled by 5/3. Tapping opens the wave editor. Devices
+ * without a measured plate just get the preview.
  */
 @Composable
 private fun HeroDevice(
@@ -740,6 +724,7 @@ private fun HeroDevice(
     live: Boolean,
     matrix: Int,
     wave: GlyphWave = GlyphWave(),
+    onTap: () -> Unit = {},
 ) {
     val url = remember {
         resolveDeviceRender()?.imageUrl?.replace("width=1000", "width=2000")
@@ -748,15 +733,17 @@ private fun HeroDevice(
     if (url == null || matrix != 25) {
         LiveMatrixPreview(
             kit = kit, mode = mode, username = username, pct = pct, watts = watts,
-            playing = playing, live = live, matrix = matrix, hardware = false,
+            playing = playing, live = live, matrix = matrix, hardware = true,
             wave = wave,
-            modifier = Modifier.size(144.dp),
+            modifier = Modifier
+                .size(240.dp)
+                .clickable(role = Role.Button, onClick = onTap),
         )
         return
     }
-    val canvas = 544.dp
-    val cropX = 245.dp
-    val cropY = 28.dp
+    val canvas = 906.dp
+    val cropX = 408.dp
+    val cropY = 47.dp
     val context = LocalContext.current
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     var renderFailed by remember { mutableStateOf(false) }
@@ -775,9 +762,10 @@ private fun HeroDevice(
     val loaded = bitmap != null
     Box(
         modifier = Modifier
-            .width(144.dp)
-            .height(240.dp)
-            .clipToBounds(),
+            .width(240.dp)
+            .height(400.dp)
+            .clipToBounds()
+            .clickable(role = Role.Button, onClick = onTap),
     ) {
         if (!loaded) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -801,23 +789,21 @@ private fun HeroDevice(
             }
         }
         val disc = canvas * P3_DISC_D
-        val box = disc
+        // The preview IS the disc — substrate, LEDs and rim — so no clip:
+        // the whole matrix lands on the photo's glyph area.
         Box(
             modifier = Modifier
                 .size(disc)
                 .offset(
                     x = canvas * P3_DISC_CX - cropX - disc / 2,
                     y = canvas * P3_DISC_CY - cropY - disc / 2,
-                )
-                .clip(CircleShape),
+                ),
         ) {
             LiveMatrixPreview(
                 kit = kit, mode = mode, username = username, pct = pct, watts = watts,
-                playing = playing, live = live, matrix = matrix, hardware = false,
+                playing = playing, live = live, matrix = matrix, hardware = true,
                 wave = wave,
-                modifier = Modifier
-                    .size(box)
-                    .offset(x = -(box - disc) / 2, y = -(box - disc) / 2),
+                modifier = Modifier.size(disc),
             )
         }
     }
@@ -848,13 +834,19 @@ fun MatrixPreview(
         val originY = (size.height - s) / 2f
         val centre = Offset(originX + s / 2f, originY + s / 2f)
         val radius = s / 2f
-        val cell = s / matrix
+        // Half a cell of margin on every side keeps the rim clear of the
+        // outermost LEDs.
+        val field = s * (matrix - 1f) / matrix
+        val cell = field / matrix
+        val gridX = originX + (s - field) / 2f
+        val gridY = originY + (s - field) / 2f
         // Museum numbers: LED side 0.80 of the pitch, corner radius a
-        // quarter of the side, substrate ~7% white, rim ~30%.
+        // quarter of the side. Panel: black disc, unlit LEDs as faint grey
+        // squares, thin rim.
         val side = cell * 0.80f
         val corner = CornerRadius(side * 0.25f)
         if (hardware) {
-            drawCircle(color = Color.White.copy(alpha = 0.07f), radius = radius, center = centre)
+            drawCircle(color = Color.Black, radius = radius, center = centre)
             drawCircle(
                 color = Color.White.copy(alpha = 0.30f),
                 radius = radius,
@@ -865,21 +857,24 @@ fun MatrixPreview(
         val cells = if (data.size == matrix * matrix) data else IntArray(matrix * matrix)
         for (j in 0 until matrix) {
             for (i in 0 until matrix) {
-                val fx = (i + 0.5f) / matrix * 2f - 1f
-                val fy = (j + 0.5f) / matrix * 2f - 1f
-                if (fx * fx + fy * fy > 1f) continue
+                // Kept when the LED centre is inside the disc, with one cell
+                // of slack: the outermost LEDs stop short of the rim.
+                val dx = i + 0.5f - matrix / 2f
+                val dy = j + 0.5f - matrix / 2f
+                val inside = matrix / 2f - 0.5f
+                if (dx * dx + dy * dy > inside * inside) continue
                 val v = cells[j * matrix + i]
                 if (v <= 0 && !hardware) continue
                 drawRoundRect(
                     color = if (v > 0) {
                         Color.White.copy(alpha = (v / 255f).coerceIn(0f, 1f))
                     } else {
-                        // An unlit LED reads as a dark square in the substrate.
-                        Color.Black
+                        // An unlit LED stays faintly visible on the black panel.
+                        Color.White.copy(alpha = 0.07f)
                     },
                     topLeft = Offset(
-                        originX + i * cell + (cell - side) / 2f,
-                        originY + j * cell + (cell - side) / 2f,
+                        gridX + i * cell + (cell - side) / 2f,
+                        gridY + j * cell + (cell - side) / 2f,
                     ),
                     size = Size(side, side),
                     cornerRadius = corner,
