@@ -38,9 +38,10 @@ import kotlin.math.abs
 // when the user selects it in the Glyph carousel, and it stays bound for AOD.
 // Which glyph is on the matrix is decided every tick by [resolveMode]:
 //
-//   charging (user-enabled)      -> WATTS
-//   foreground app is configured -> the mode the user mapped it to
-//   otherwise                    -> USERNAME, the always-on default
+//   charging (user-enabled)        -> WATTS
+//   a PLAYING group while audio    -> that group's mode
+//   a group owning the foreground  -> that group's mode
+//   otherwise                      -> the user's default mode (GLYPH tab)
 //
 // Layout facts reverse-engineered from glyph-matrix-sdk-2.0 (see
 // GlyphRenderers.kt): the canvas is auto-sized to
@@ -83,16 +84,19 @@ class GlyphToyService : Service() {
     // frame would allocate 90x a second inside the waveform loop.
     private var synth: WaveformSynth? = null
     private var bars: WaveformBars? = null
+    private var barCount = 11
     private var smiley: SmileyRenderer? = null
     private var animTick = 0
     /** True while the system is driving the dim always-on frame. */
     private var aodMode = false
 
-    /** Signal cache; see foregroundCached/chargingCached. */
+    /** Signal cache; see foregroundCached/chargingCached/audioCached. */
     private var fgCached: String? = null
     private var fgCachedAt = 0L
     private var chargingCached = false
     private var chargingCachedAt = 0L
+    private var audioCached = false
+    private var audioCachedAt = 0L
 
     /** Frame diagnostics; see pushFrame. */
     private var lastLoggedMode: String? = null
@@ -164,6 +168,7 @@ class GlyphToyService : Service() {
         lastFrameKey = null
         marquee = null
         marqueeFor = null
+        AudioCapture.stop()
         try {
             gm?.turnOff()
             gm?.unInit()
@@ -206,8 +211,9 @@ class GlyphToyService : Service() {
         }
         deviceId = id
         matrix = len
+        barCount = if (len >= 25) 11 else 7
         bars = WaveformBars(len)
-        synth = WaveformSynth(if (len >= 25) 11 else 7)
+        synth = WaveformSynth(barCount)
         smiley = SmileyRenderer(len)
 
         val m = GlyphMatrixManager.getInstance(applicationContext)
@@ -278,9 +284,9 @@ class GlyphToyService : Service() {
     // UsageStatsManager.queryEvents is an IPC plus a cursor walk. Re-running
     // them per tick is what makes a scrolling glyph stutter.
     private fun foregroundCached(): String? {
-        // Nothing is mapped, so there is nothing to match against — skip the
-        // query entirely, which is the common case.
-        if (settings.appModes.isEmpty()) return null
+        // No group lists any app, so there is nothing to match against — skip
+        // the query entirely, which is the common case.
+        if (settings.groups.none { it.apps.isNotEmpty() }) return null
         val now = SystemClock.elapsedRealtime()
         if (now - fgCachedAt < SIGNAL_TTL_MS) return fgCached
         fgCached = foregroundApp(applicationContext)
@@ -296,12 +302,19 @@ class GlyphToyService : Service() {
         return chargingCached
     }
 
-    fun resolveMode(): GlyphMode {
-        if (settings.chargingEnabled && chargingCached()) return GlyphMode.WATTS
-        val mapped = settings.modeFor(foregroundCached())
-        if (mapped != null) return mapped
-        return DEFAULT_GLYPH_MODE
+    private fun audioCached(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (now - audioCachedAt < SIGNAL_TTL_MS) return audioCached
+        audioCached = audioPlaying(applicationContext)
+        audioCachedAt = now
+        return audioCached
     }
+
+    fun resolveMode(): GlyphMode = settings.resolveMode(
+        charging = chargingCached(),
+        foregroundPkg = foregroundCached(),
+        audioPlaying = audioCached(),
+    )
 
     private fun isInteractive(): Boolean = try {
         (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
@@ -344,7 +357,11 @@ class GlyphToyService : Service() {
             GlyphMode.WAVEFORM -> {
                 val wf = synth ?: return
                 val renderer = bars ?: return
-                val sample = wf.update(audioPlaying(applicationContext))
+                // Real samples from the output mix when the session-0
+                // Visualizer attaches; the synth stays as the fallback for
+                // devices where it cannot (and for silence checks).
+                val real = if (AudioCapture.ensureStarted()) AudioCapture.bars(barCount) else null
+                val sample = real ?: wf.update(audioPlaying(applicationContext))
                 val obj = renderer.render(sample, brightness)
                 m.pushFrame("W${sample.contentHashCode()}:$brightness") { addTop(obj) }
             }

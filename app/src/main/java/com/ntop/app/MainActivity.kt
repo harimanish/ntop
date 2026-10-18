@@ -88,9 +88,8 @@ import com.ntop.app.ui.components.Panel
 import com.ntop.app.ui.components.PanelRow
 import com.ntop.app.ui.components.DotGraph
 import com.ntop.app.ui.components.CoreDots
-import com.ntop.app.ui.components.GlyphConfigSection
+import com.ntop.app.ui.components.GlyphTabContent
 import com.ntop.app.ui.components.GlassTelemetryRow
-import com.ntop.app.ui.components.Phone3Render
 import com.ntop.app.ui.components.FluentBottomBar
 import com.ntop.app.ui.components.SpecGridCell
 import com.ntop.app.ui.components.MicroLabel
@@ -126,7 +125,7 @@ import com.ntop.app.stats.loadSampleCache
 import com.ntop.app.stats.RamInfo
 import com.ntop.app.stats.RamApp
 import com.ntop.app.stats.saveSampleCache
-import com.nothing.ketchum.Common
+import com.ntop.app.stats.glyphMatrixLength
 import rikka.shizuku.Shizuku
 import com.ntop.app.ui.theme.NtopTheme
 import com.ntop.app.ui.theme.AccentColors
@@ -466,7 +465,13 @@ private fun AppShell(
     tick: Int,
     cachedProc: List<ProcEntry> = emptyList(),
 ) {
-    val routes = listOf("mon", "proc", "batt", "sys")
+    // The GLYPH page only exists on matrix devices; everything downstream
+    // (pager, tab bar, deep links) is driven by this list.
+    val glyphOk = remember { glyphMatrixLength() > 0 }
+    val routes = remember(glyphOk) {
+        if (glyphOk) listOf("mon", "proc", "batt", "sys", "glyph")
+        else listOf("mon", "proc", "batt", "sys")
+    }
     val pagerState = rememberPagerState(pageCount = { routes.size })
     val scope = rememberCoroutineScope()
     val currentPage by remember { derivedStateOf { pagerState.currentPage } }
@@ -530,6 +535,7 @@ private fun AppShell(
                         onBlurChange = { blurDraft = it },
                         onBlurCommit = { scope.launch { setBlurDp(context, it.toInt()) } },
                     )
+                    "glyph" -> GlyphTabContent(info = info, mon = mon, tick = tick, accent = accent)
                     else -> BattContent(info, health, mon, tick)
                 }
             }
@@ -548,6 +554,7 @@ private fun AppShell(
                 barAlpha = barAlpha / 100f,
                 blurDp = blurDp.toInt(),
                 accent = accent,
+                showGlyph = glyphOk,
                 onSelect = { dest ->
                     val page = routes.indexOf(dest).takeIf { it >= 0 } ?: 0
                     if (page != pagerState.currentPage) {
@@ -1067,10 +1074,7 @@ private fun SysContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            Box(modifier = Modifier.weight(1f)) {
                 GlassCardVariant {
                     MicroLabel("OS", color = Muted)
                     Spacer(Modifier.height(4.dp))
@@ -1080,6 +1084,8 @@ private fun SysContent(
                         color = Color.White,
                     )
                 }
+            }
+            Box(modifier = Modifier.weight(1f)) {
                 GlassCardVariant {
                     MicroLabel(
                         render?.name?.uppercase(Locale.getDefault()) ?: "DEVICE",
@@ -1096,14 +1102,16 @@ private fun SysContent(
                     MicroLabel("${Build.MODEL} · ${abiText()}", color = Muted)
                 }
             }
-            Box(modifier = Modifier.weight(1f)) {
-                GlassCardVariant {
-                    DeviceRenderImage(
-                        level = info.level.coerceIn(0, 100),
-                        modifier = Modifier.height(230.dp),
-                    )
-                }
-            }
+        }
+        Spacer(Modifier.height(12.dp))
+        // About-phone sizing: the official render at full card width, so the
+        // body reads ~300dp tall like Settings > About phone.
+        GlassCardVariant {
+            DeviceRenderImage(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+            )
         }
         Spacer(Modifier.height(16.dp))
         // Spec grid: only values public APIs can actually provide.
@@ -1200,88 +1208,44 @@ private fun SysContent(
             Spacer(Modifier.height(4.dp))
             MicroLabel(AccentNames.getOrElse(theme.accentIdx) { "WHITE" }, color = Muted)
         }
-        if (isGlyphMatrixSupported()) {
-            Spacer(Modifier.height(32.dp))
-            MicroLabel("GLYPH MATRIX")
-            Spacer(Modifier.height(8.dp))
-            GlassCardVariant {
-                GlassTelemetryRow("TOY", "NTOP · AOD")
-                GlassTelemetryRow(
-                    "MATRIX",
-                    "${glyphMatrixLength()}×${glyphMatrixLength()}",
-                    last = true,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable(role = Role.Button) {
-                        try {
-                            context.startActivity(
-                                android.content.Intent().apply {
-                                    component = android.content.ComponentName(
-                                        "com.nothing.thirdparty",
-                                        "com.nothing.thirdparty.matrix.toys.manager.ToysManagerActivity",
-                                    )
-                                },
-                            )
-                        } catch (_: Exception) {
-                        }
-                    }
-                    .background(LucentSurfaceStrong)
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                MicroLabel("ADD TO ALWAYS-ON GLYPH")
-            }
-            Spacer(Modifier.height(24.dp))
-            GlyphConfigSection(accent = accent)
-        }
         FooterClearance()
     }
 }
 
 // ---------------------------------------------------------------------------
-// Glyph Matrix gating: only matrix devices (Phone 3: 25×25) show the toy
-// section. Guarded — the SDK touches system services on old builds.
-// ---------------------------------------------------------------------------
-private fun glyphMatrixLength(): Int = try {
-    Common.getDeviceMatrixLength()
-} catch (_: Exception) {
-    0
-}
-
-private fun isGlyphMatrixSupported(): Boolean = glyphMatrixLength() > 0
-
-// ---------------------------------------------------------------------------
 // Device render: official store image for the detected Nothing/CMF model
-// (see resolveDeviceRender) with the hand-drawn Phone3Render vector as the
-// loading/error/offline fallback.
+// (see resolveDeviceRender), requested at 2x width for crispness. Unknown
+// devices fall back to a neutral placeholder.
 // ---------------------------------------------------------------------------
 @Composable
-private fun DeviceRenderImage(level: Int, modifier: Modifier = Modifier) {
+private fun DeviceRenderImage(modifier: Modifier = Modifier) {
     val render = remember { resolveDeviceRender() }
     val context = LocalContext.current
-    val fallback = Modifier
-        .height(150.dp)
-        .aspectRatio(0.52f)
-    if (render != null) {
-        SubcomposeAsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(render.imageUrl)
-                .crossfade(true)
-                .build(),
-            contentDescription = "Nothing ${render.name}",
-            modifier = modifier,
-            contentScale = ContentScale.Fit,
-            loading = { Phone3Render(level = level, modifier = fallback) },
-            error = { Phone3Render(level = level, modifier = fallback) },
-        )
-    } else {
-        Phone3Render(level = level, modifier = fallback)
+    if (render == null) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            MicroLabel("NO DEVICE RENDER", color = Muted)
+        }
+        return
     }
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(render.imageUrl.replace("width=1000", "width=2000"))
+            .crossfade(true)
+            .build(),
+        contentDescription = "Nothing ${render.name}",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+        loading = {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                MicroLabel("LOADING DEVICE RENDER", color = Muted)
+            }
+        },
+        error = {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                MicroLabel("NO DEVICE RENDER", color = Muted)
+            }
+        },
+    )
 }
 
 private fun sampleInfo() = BatteryInfo(

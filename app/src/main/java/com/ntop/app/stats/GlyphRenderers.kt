@@ -61,7 +61,10 @@ class UsernameMarquee(
         val off = if (fits()) {
             (matrix - stripWidth) / 2
         } else {
-            offsetPx.coerceAtLeast(0)
+            // Wrap. Without this the strip scrolls off once and every frame
+            // afterwards is blank — the name would vanish after ~5 s both in
+            // the preview and on the toy.
+            offsetPx.mod(stripWidth)
         }
         canvas.drawBitmap(strip, -off.toFloat(), 0f, null)
         return GlyphMatrixObject.Builder()

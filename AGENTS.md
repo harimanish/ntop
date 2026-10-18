@@ -76,23 +76,42 @@ fonts, red accent only on charging pill/dot).
   is the SDK's `GlyphToy.EVENT_AOD`, which the system sends once a minute
   while the toy is the always-on toy; `EVENT_CHANGE` means the user is
   interacting again and the frame goes back to full brightness.
-- **There is no public API for a live audio session id on API 36**, so
-  `Visualizer` cannot be used for another app's playback. Verified in the
-  stubs: `AudioPlaybackConfiguration` publishes only `getAudioAttributes()`
-  (`getPlayState()`/`getAudioSessionId()` are `@SystemApi`), and the public
-  `MediaSession` stub has no `getSessionId()` either. Hidden-API reflection
-  is blocked at `targetSdk 36`. The toy therefore draws a synthetic waveform
-  gated on the real play/pause signal from
-  `AudioManager.activePlaybackConfigurations` (which needs no permission).
-  Real samples would need Shizuku-privileged capture or a lower targetSdk.
-- Per-app glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
-  `foregroundApp()` returns null and every assignment is silently ignored —
-  the SYS tab shows a banner and a deep link to the settings screen.
+- **There is no public API for a live audio session id on API 36** — verified
+  in the stubs: `AudioPlaybackConfiguration` publishes only
+  `getAudioAttributes()` (`getPlayState()`/`getAudioSessionId()` are
+  `@SystemApi`), the public `MediaSession` stub has no `getSessionId()`, and
+  hidden-API reflection is blocked at `targetSdk 36`. The one working route
+  is the **session-0 output mix** (`Visualizer(0)`), which AudioFlinger gates
+  on **RECORD_AUDIO**: with only `MODIFY_AUDIO_SETTINGS` the effect fails
+  (`AudioFlinger ... status: -1` -> `Java error: -3`), so the GLYPH tab
+  shows a `LIVE AUDIO OFF` banner + runtime-permission ALLOW. Without the
+  grant (or where the effect cannot attach) the toy falls back to the
+  synthetic bars, still gated on the real play/pause signal from
+  `AudioManager.activePlaybackConfigurations` (no permission needed).
+- Group glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
+  `foregroundApp()` returns null and IN USE matching is silently ignored —
+  the GLYPH tab shows a banner and a deep link to the settings screen.
+- Glyph groups are **user-built combos** (name + packages + mode + trigger),
+  persisted as a JSON array string in the Glyph DataStore and resolved by the
+  shared `GlyphSettings.resolveMode` (toy and tab preview run the same
+  function, so the preview cannot lie): charging -> WATTS; PLAYING group
+  while audio plays -> its mode; group owning the foreground app -> its mode;
+  else defaultMode. A **PLAYING trigger cannot know which app is making
+  sound** (no public playback attribution), so it matches on audio
+  system-wide plus its own apps' foreground — the honest approximation for a
+  music group. **`queryEvents` needs wall-clock epoch millis, not
+  `SystemClock.elapsedRealtime()`** — the elapsed-clock window landed in
+  January 1970, so every `foregroundApp()` query came back empty and
+  foreground matching silently fell back to the default; the lookback is
+  15 min so the newest RESUMED does not age out while you stay in one app.
+  0.4.x per-app maps are migrated on read into one IN USE group per mode;
+  a present-but-empty groups key is an explicit empty list.
 - The toy re-queries `UsageStatsManager.queryEvents` and the battery
   broadcast on the render tick; at a 90 ms marquee cadence that is ~11
-  system-service IPCs a second and it stutters. Both are cached
+  system-service IPCs a second and it stutters. They are cached
   (`SIGNAL_TTL_MS`), and the foreground query is skipped entirely when no
-  app is mapped.
+  group lists any app. Audio state is cached the same way for resolution;
+  the waveform animation still reads it per frame as before.
 - **The 1 s sampler ran on the main thread and that, not rendering, was the
   cost.** `LaunchedEffect` uses the UI dispatcher, so every tick was doing
   `/proc/meminfo` (twice), 8 per-core `cpufreq` reads, `StatFs`, `TrafficStats`
@@ -124,6 +143,44 @@ fonts, red accent only on charging pill/dot).
   track the real signal. The Glyph Toy additionally dedupes frames by content
   key and refreshes on a 5 s tick — never pulse it, an on/off blink on a
   meter reads as flicker.
+- A scrolling marquee must wrap with `offsetPx.mod(stripWidth)` and draw the
+  strip twice — a plain rising offset scrolls the text off the matrix and
+  then blanks it.
+- The hero photo is **drawn, not composed**: Coil's `SubcomposeAsyncImage`
+  with `requiredSize` and `AsyncImagePainter` both failed (invisible draw /
+  compile); what works is `context.imageLoader.execute(ImageRequest)` ->
+  `(drawable as BitmapDrawable).bitmap`, drawn on a `Canvas` with
+  `translate(-cropX, -cropY)` + `scale(canvasPx / bmp.width, pivot =
+  Offset.Zero)`. Phone (3) disc geometry, measured off the 2000 px CDN
+  render: centre at 62.35 % / 15.15 % of canvas width, disc d 11.75 %; the
+  544 dp crop is -245/-28 into a 144x240 dp viewport clipped to the disc.
+  `MatrixPreview`'s lit area spans 0.88 of its box (cell quantisation), so
+  the preview box is disc / 0.88.
+
+## Open items (next session)
+
+- **Square LEDs**: the hardware matrix (and Glyph Beat's renderer) draws
+  small square LEDs, but `MatrixPreview` still draws circles — switch lit and
+  dim cells to `drawRect` squares at 0.68 of the cell.
+- **Waveform look editor** (Glyph Beat opens these by tapping the
+  visualizer): Mirror Mode (bass to the centre, treble to the edges),
+  Sensitivity (input gain) and Smoothing (bar fall speed). Researched, not
+  written: `GlyphWave(mirror, sensitivity, smoothing)` in `GlyphPrefs` +
+  DataStore keys/setter; `AudioCapture.bars(count, release, gain)`;
+  `mirrorSpectrum()` / `applyGain()` helpers in `GlyphRenderers`;
+  `GlyphPreviewKit.frame(..., wave)`; the toy service reads `settings.wave`;
+  editor opens by tapping the hero preview, sliders styled like the SYS
+  appearance sliders (accent thumb/track, commit on release).
+- **Remove debug probes**: frame-stats `Log.i` + `lastProbe`/`SystemClock`
+  in `GlyphPreview.kt`; leftover `android.util.Log` import/usages in
+  `GlyphTab.kt`.
+- **Device-verify the RECORD_AUDIO banner**: `pm revoke` -> `LIVE AUDIO OFF`
+  card shows -> ALLOW -> AUDIO row back to `PLAYING · LIVE`.
+- **Device residue to clean**: `/sdcard/Music/ntop-test.wav`, test group
+  "lolili" (SMILEY / IN USE), DEFAULT MODE -> SMILEY, POWER WHILE CHARGING
+  -> ON, `settings put system screen_off_timeout 300000`; keep the MUSIC
+  group (Auxio -> WAVEFORM · PLAYING) as the demo.
+- Optional before shipping: bump 0.4.0 -> 0.4.1 / versionCode 5.
 
 ## Conventions
 

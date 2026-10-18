@@ -10,7 +10,7 @@ import android.os.Build
 // Mapping covers model numbers (e.g. A024), device codenames (e.g. metroid)
 // and marketing names (e.g. "Phone (3)"), matched against Build.MODEL,
 // Build.DEVICE and Build.PRODUCT. Unknown / non-Nothing devices return null
-// and the DeviceCard falls back to the hand-drawn Phone3Render vector.
+// and the card falls back to a neutral placeholder.
 // ---------------------------------------------------------------------------
 
 private const val CDN = "https://cdn.shopify.com/s/files/1/0586/3270/0077/files"

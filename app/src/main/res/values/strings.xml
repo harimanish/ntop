@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">ntop</string>
     <string name="toy_name">ntop</string>
-    <string name="toy_summary">Battery face, charging watts, username and waveform for the Glyph Matrix</string>
+    <string name="toy_summary">Dynamic Glyph: smiley, name, watts or waveform — switched by the app groups you make</string>
 </resources>

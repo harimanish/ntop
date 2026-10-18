@@ -4,7 +4,6 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.media.AudioManager
-import android.os.SystemClock
 import android.util.Log
 import kotlin.math.PI
 import kotlin.math.abs
@@ -34,10 +33,19 @@ private const val TAG = "ntop.GlyphToy"
  * Most recent package moved to the foreground. Walks usage events back from
  * now and takes the newest ACTIVITY_RESUMED, which stays correct when a
  * package resumes an already-created activity.
+ *
+ * The lookback must outlive "the user stays in one app": with a few-second
+ * window the newest RESUMED ages out while you are still in that app, the
+ * caller sees null, and a per-app mapping silently falls back to the
+ * default. Any newer resume — another app, the launcher, the keyguard —
+ * simply lands on top of the window, so the newest event stays correct.
  */
-fun foregroundApp(context: Context, lookbackMs: Long = 5_000L): String? = try {
+fun foregroundApp(context: Context, lookbackMs: Long = 15 * 60_000L): String? = try {
     val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-    val now = SystemClock.elapsedRealtime()
+    // queryEvents takes WALL-CLOCK epoch millis. elapsedRealtime (ms since
+    // boot) put the window in January 1970, so every query came back empty
+    // and every foreground match silently fell back to the default.
+    val now = System.currentTimeMillis()
     val events = usm.queryEvents(now - lookbackMs, now)
     val event = UsageEvents.Event()
     var found: String? = null

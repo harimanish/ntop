@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.Pattern
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Icon
@@ -83,6 +84,7 @@ fun FluentBottomBar(
     barAlpha: Float = 0.8f,
     blurDp: Int = 24,
     accent: Color = Color.White,
+    showGlyph: Boolean = false,
 ) {
     Box(
         modifier = modifier.fillMaxWidth(),
@@ -132,6 +134,15 @@ fun FluentBottomBar(
                 accent = accent,
                 onClick = { onSelect("sys") },
             )
+            if (showGlyph) {
+                FluentTab(
+                    icon = Icons.Filled.Pattern,
+                    contentDescription = "Glyph",
+                    selected = currentRoute == "glyph",
+                    accent = accent,
+                    onClick = { onSelect("glyph") },
+                )
+            }
         }
     }
 }

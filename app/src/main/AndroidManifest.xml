@@ -8,6 +8,23 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <!-- Required for Glyph Matrix control via Nothing's GDK. -->
     <uses-permission android:name="com.nothing.ketchum.permission.ENABLE" />
+    <!-- Real waveform for the Glyph toy: Visualizer(0) on the output mix is
+         gated on this NORMAL permission (auto-granted, no prompt). Per-app
+         session capture stays impossible; session 0 is the supported route. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Session-0 Visualizer (the output mix). MODIFY_AUDIO_SETTINGS alone is
+         not enough on this build: AudioFlinger refuses the effect without
+         RECORD_AUDIO, which is requested from the GLYPH tab. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Package visibility for the GLYPH tab's per-app list. The sanctioned
+         targeted alternative to QUERY_ALL_PACKAGES: without this, the launcher
+         query only returns the app itself plus a couple of system packages. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
