@@ -2,7 +2,6 @@ package com.ntop.app.stats
 
 import android.content.Context
 import android.graphics.Typeface
-import android.os.SystemClock
 import android.util.Log
 import com.nothing.ketchum.Common
 import com.nothing.ketchum.GlyphMatrixFrame
@@ -38,7 +37,6 @@ class GlyphPreviewKit(private val context: Context, private val matrix: Int) {
 
     private var marquee: UsernameMarquee? = null
     private var marqueeFor: String? = null
-    private var lastProbe = 0L
 
     /** All-dark frame, shared so an OFF preview never re-allocates. */
     private val dark = IntArray(matrix * matrix)
@@ -55,6 +53,7 @@ class GlyphPreviewKit(private val context: Context, private val matrix: Int) {
         pct: Int,
         watts: Float?,
         playing: Boolean,
+        wave: GlyphWave = GlyphWave(),
     ): IntArray {
         if (mode == null) return dark
         return try {
@@ -80,11 +79,13 @@ class GlyphPreviewKit(private val context: Context, private val matrix: Int) {
                     // the Visualizer attaches; synthetic bars only as a
                     // fallback on devices where it cannot.
                     val real = if (AudioCapture.ensureStarted()) {
-                        AudioCapture.bars(barCount)
+                        AudioCapture.bars(barCount, wave.smoothing, wave.sensitivity)
                     } else {
                         null
                     }
-                    builder.addTop(bars.render(real ?: synth.update(playing), BRIGHT_ON))
+                    val sample = real ?: applyGain(synth.update(playing), wave.sensitivity)
+                    val shaped = if (wave.mirror) mirrorSpectrum(sample) else sample
+                    builder.addTop(bars.render(shaped, BRIGHT_ON))
                 }
 
                 GlyphMode.WATTS -> {
@@ -110,21 +111,7 @@ class GlyphPreviewKit(private val context: Context, private val matrix: Int) {
                     }
                 }
             }
-            builder.build(appContext).render().also { out ->
-                if (SystemClock.elapsedRealtime() - lastProbe > 1000L) {
-                    lastProbe = SystemClock.elapsedRealtime()
-                    var lit = 0
-                    var max = 0
-                    for (v in out) {
-                        if (v != 0) lit++
-                        if (v > max) max = v
-                    }
-                    Log.i(
-                        TAG,
-                        "frame mode=$mode size=${out.size} lit=$lit max=$max expected=${matrix * matrix}",
-                    )
-                }
-            }
+            builder.build(appContext).render()
         } catch (e: Exception) {
             Log.w(TAG, "preview render failed", e)
             dark

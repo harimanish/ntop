@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -38,6 +37,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -55,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
@@ -80,6 +82,7 @@ import com.ntop.app.stats.GlyphMode
 import com.ntop.app.stats.GlyphPreviewKit
 import com.ntop.app.stats.GlyphSettings
 import com.ntop.app.stats.GlyphTrigger
+import com.ntop.app.stats.GlyphWave
 import com.ntop.app.stats.MonitorState
 import com.ntop.app.stats.audioPlaying
 import com.ntop.app.stats.foregroundApp
@@ -92,6 +95,7 @@ import com.ntop.app.stats.setGlyphCharging
 import com.ntop.app.stats.setGlyphDefaultMode
 import com.ntop.app.stats.setGlyphGroups
 import com.ntop.app.stats.setGlyphUsername
+import com.ntop.app.stats.setGlyphWave
 import com.ntop.app.ui.theme.LucentBorder
 import com.ntop.app.ui.theme.LucentSurface
 import com.ntop.app.ui.theme.LucentSurfaceStrong
@@ -195,6 +199,13 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
     var draft by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<GlyphGroup?>(null) }
     var fg by remember { mutableStateOf<String?>(null) }
+    var waveEdit by remember { mutableStateOf(false) }
+    var waveMirror by remember(settings.wave) { mutableStateOf(settings.wave.mirror) }
+    var sensDraft by remember(settings.wave) { mutableStateOf(settings.wave.sensitivity) }
+    var smoothDraft by remember(settings.wave) { mutableStateOf(settings.wave.smoothing) }
+    val commitWave: () -> Unit = {
+        scope.launch { setGlyphWave(context, GlyphWave(waveMirror, sensDraft, smoothDraft)) }
+    }
     var audioGranted by remember {
         mutableStateOf(
             context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
@@ -263,6 +274,7 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
                     playing = playing,
                     live = live,
                     matrix = matrix,
+                    wave = settings.wave,
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
@@ -285,9 +297,12 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
                         live = live,
                         matrix = matrix,
                         dimGrid = true,
+                        wave = settings.wave,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(1f),
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(role = Role.Button) { waveEdit = !waveEdit },
                     )
                 }
             }
@@ -308,6 +323,66 @@ fun GlyphTabContent(info: BatteryInfo, mon: MonitorState, tick: Int, accent: Col
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 12.dp),
+                )
+            }
+
+            // Waveform look editor: the same knobs Glyph Beat exposes when
+            // its visualizer is tapped; shared with the toy via DataStore.
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(role = Role.Button) { waveEdit = !waveEdit }
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MicroLabel("WAVEFORM LOOK", color = Muted)
+                MicroLabel(if (waveEdit) "HIDE" else "EDIT", color = accent)
+            }
+            if (waveEdit) {
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ModePill(
+                        label = "LEFT · RIGHT",
+                        selected = !waveMirror,
+                        accent = accent,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        waveMirror = false
+                        commitWave()
+                    }
+                    ModePill(
+                        label = "BASS · CENTRE",
+                        selected = waveMirror,
+                        accent = accent,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        waveMirror = true
+                        commitWave()
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                MicroLabel(
+                    "SENSITIVITY · ${"%.2f".format(Locale.US, sensDraft)}×",
+                    color = Muted,
+                )
+                Slider(
+                    value = sensDraft,
+                    onValueChange = { sensDraft = it },
+                    onValueChangeFinished = { commitWave() },
+                    valueRange = 0.5f..3f,
+                    colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
+                )
+                Spacer(Modifier.height(2.dp))
+                MicroLabel("SMOOTHING · ${(smoothDraft * 100).toInt()}%", color = Muted)
+                Slider(
+                    value = smoothDraft,
+                    onValueChange = { smoothDraft = it },
+                    onValueChangeFinished = { commitWave() },
+                    valueRange = 0.5f..0.95f,
+                    colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent),
                 )
             }
         }
@@ -593,6 +668,7 @@ private data class PreviewInput(
     val pct: Int,
     val watts: Float?,
     val playing: Boolean,
+    val wave: GlyphWave = GlyphWave(),
 )
 
 /**
@@ -611,22 +687,23 @@ private fun LiveMatrixPreview(
     live: Boolean,
     matrix: Int,
     dimGrid: Boolean,
+    wave: GlyphWave = GlyphWave(),
     modifier: Modifier = Modifier,
 ) {
     var data by remember(kit) { mutableStateOf(IntArray(matrix * matrix)) }
-    val latest by rememberUpdatedState(PreviewInput(mode, username, pct, watts, playing))
+    val latest by rememberUpdatedState(PreviewInput(mode, username, pct, watts, playing, wave))
 
-    LaunchedEffect(kit, mode, live) {
+    LaunchedEffect(kit, mode, live, wave) {
         if (!live) {
             // One frame so a paused preview still shows the current mode.
             val inp = latest
-            data = kit.frame(inp.mode, 0, inp.username, inp.pct, inp.watts, inp.playing)
+            data = kit.frame(inp.mode, 0, inp.username, inp.pct, inp.watts, inp.playing, inp.wave)
             return@LaunchedEffect
         }
         var step = 0
         while (isActive) {
             val inp = latest
-            data = kit.frame(inp.mode, step, inp.username, inp.pct, inp.watts, inp.playing)
+            data = kit.frame(inp.mode, step, inp.username, inp.pct, inp.watts, inp.playing, inp.wave)
             step++
             // Meter modes only change when the 1 s sample does; animations
             // follow the toy's awake cadence (90-100 ms).
@@ -661,6 +738,7 @@ private fun HeroDevice(
     playing: Boolean,
     live: Boolean,
     matrix: Int,
+    wave: GlyphWave = GlyphWave(),
 ) {
     val url = remember {
         resolveDeviceRender()?.imageUrl?.replace("width=1000", "width=2000")
@@ -670,6 +748,7 @@ private fun HeroDevice(
         LiveMatrixPreview(
             kit = kit, mode = mode, username = username, pct = pct, watts = watts,
             playing = playing, live = live, matrix = matrix, dimGrid = false,
+            wave = wave,
             modifier = Modifier.size(144.dp),
         )
         return
@@ -734,6 +813,7 @@ private fun HeroDevice(
             LiveMatrixPreview(
                 kit = kit, mode = mode, username = username, pct = pct, watts = watts,
                 playing = playing, live = live, matrix = matrix, dimGrid = false,
+                wave = wave,
                 modifier = Modifier
                     .size(box)
                     .offset(x = -(box - disc) / 2, y = -(box - disc) / 2),
@@ -743,9 +823,9 @@ private fun HeroDevice(
 }
 
 /**
- * The dot matrix as hardware shows it: white dots on a black disc, lit cells
- * at their rendered brightness, unlit cells faint. Nothing is drawn outside
- * the disc — the hardware has no LEDs there.
+ * The matrix as hardware shows it: square white LEDs on a black disc, lit
+ * cells at their rendered brightness, unlit cells faint. Nothing is drawn
+ * outside the disc — the hardware has no LEDs there.
  */
 @Composable
 fun MatrixPreview(
@@ -764,7 +844,8 @@ fun MatrixPreview(
 
         drawCircle(color = Color.Black, radius = s / 2f, center = centre)
         val cell = s / matrix
-        val dotR = cell * 0.34f
+        val litSide = cell * 0.68f
+        val dimSide = litSide * 0.8f
         val cells = if (data.size == matrix * matrix) data else IntArray(matrix * matrix)
         for (j in 0 until matrix) {
             for (i in 0 until matrix) {
@@ -776,9 +857,17 @@ fun MatrixPreview(
                 if (!inside) continue
                 if (v > 0) {
                     val alpha = (0.35f + 0.65f * (v / 255f)).coerceAtMost(1f)
-                    drawCircle(Color.White.copy(alpha = alpha), radius = dotR, center = center)
+                    drawRect(
+                        color = Color.White.copy(alpha = alpha),
+                        topLeft = Offset(center.x - litSide / 2f, center.y - litSide / 2f),
+                        size = Size(litSide, litSide),
+                    )
                 } else if (dimGrid) {
-                    drawCircle(Color.White.copy(alpha = 0.12f), radius = dotR * 0.8f, center = center)
+                    drawRect(
+                        color = Color.White.copy(alpha = 0.12f),
+                        topLeft = Offset(center.x - dimSide / 2f, center.y - dimSide / 2f),
+                        size = Size(dimSide, dimSide),
+                    )
                 }
             }
         }

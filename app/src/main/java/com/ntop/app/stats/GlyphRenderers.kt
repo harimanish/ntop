@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.RectF
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import com.nothing.ketchum.GlyphMatrixObject
 
@@ -204,3 +206,21 @@ const val BRIGHT_AOD = 160
 
 /** Glyph rows are 6 tall; used to place the two-line watts layout. */
 internal val GLYPH_ROWS = GLYPH_H
+
+/**
+ * Mirror Mode ("bass to the centre, treble to the edges"): the spectrum is
+ * resampled across its full range twice so the V stays symmetric without
+ * halving the band.
+ */
+fun mirrorSpectrum(bars: IntArray): IntArray {
+    val n = bars.size
+    if (n < 3) return bars
+    val centre = (n - 1) / 2f
+    return IntArray(n) { i -> bars[(abs(i - centre) * 2f).roundToInt().coerceIn(0, n - 1)] }
+}
+
+/** Scales bars by the user's sensitivity, clamped to the 0..100 range. */
+fun applyGain(bars: IntArray, gain: Float): IntArray {
+    if (gain == 1f) return bars
+    return IntArray(bars.size) { (bars[it] * gain).toInt().coerceIn(0, 100) }
+}

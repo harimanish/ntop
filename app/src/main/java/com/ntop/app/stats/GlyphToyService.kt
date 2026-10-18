@@ -357,11 +357,17 @@ class GlyphToyService : Service() {
             GlyphMode.WAVEFORM -> {
                 val wf = synth ?: return
                 val renderer = bars ?: return
+                val wave = settings.wave
                 // Real samples from the output mix when the session-0
                 // Visualizer attaches; the synth stays as the fallback for
                 // devices where it cannot (and for silence checks).
-                val real = if (AudioCapture.ensureStarted()) AudioCapture.bars(barCount) else null
-                val sample = real ?: wf.update(audioPlaying(applicationContext))
+                val real = if (AudioCapture.ensureStarted()) {
+                    AudioCapture.bars(barCount, wave.smoothing, wave.sensitivity)
+                } else {
+                    null
+                }
+                val raw = real ?: applyGain(wf.update(audioPlaying(applicationContext)), wave.sensitivity)
+                val sample = if (wave.mirror) mirrorSpectrum(raw) else raw
                 val obj = renderer.render(sample, brightness)
                 m.pushFrame("W${sample.contentHashCode()}:$brightness") { addTop(obj) }
             }

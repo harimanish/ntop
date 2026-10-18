@@ -1,7 +1,7 @@
 # AGENTS.md — ntop contributor context
 
 `ntop` — btop-style system monitor for Nothing phones. Package
-`com.ntop.app`, version 0.4.0. Tabs: MON / PROC / BATT / SYS (Compose
+`com.ntop.app`, version 0.4.1. Tabs: MON / PROC / BATT / SYS (Compose
 `HorizontalPager` + `FluentBottomBar`, Nothing monochrome theme, Geist
 fonts, red accent only on charging pill/dot).
 
@@ -88,6 +88,15 @@ fonts, red accent only on charging pill/dot).
   grant (or where the effect cannot attach) the toy falls back to the
   synthetic bars, still gated on the real play/pause signal from
   `AudioManager.activePlaybackConfigurations` (no permission needed).
+- WAVEFORM look is user-configurable: `GlyphWave(mirror, sensitivity,
+  smoothing)` in the Glyph DataStore, applied identically by the toy service
+  and the tab preview. Mirror = bass centre / treble edges (`mirrorSpectrum`
+  resamples the band in a symmetric V), sensitivity scales bars
+  (`applyGain`), smoothing is the per-tick fall factor passed to
+  `AudioCapture.bars(count, release, gain)`. The editor opens by tapping the
+  live preview in the hero card (Glyph Beat's gesture). The matrix is built
+  from **small square LEDs** — `MatrixPreview` draws 0.68-cell `drawRect`
+  squares, not circles.
 - Group glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
   `foregroundApp()` returns null and IN USE matching is silently ignored —
   the GLYPH tab shows a banner and a deep link to the settings screen.
@@ -159,28 +168,16 @@ fonts, red accent only on charging pill/dot).
 
 ## Open items (next session)
 
-- **Square LEDs**: the hardware matrix (and Glyph Beat's renderer) draws
-  small square LEDs, but `MatrixPreview` still draws circles — switch lit and
-  dim cells to `drawRect` squares at 0.68 of the cell.
-- **Waveform look editor** (Glyph Beat opens these by tapping the
-  visualizer): Mirror Mode (bass to the centre, treble to the edges),
-  Sensitivity (input gain) and Smoothing (bar fall speed). Researched, not
-  written: `GlyphWave(mirror, sensitivity, smoothing)` in `GlyphPrefs` +
-  DataStore keys/setter; `AudioCapture.bars(count, release, gain)`;
-  `mirrorSpectrum()` / `applyGain()` helpers in `GlyphRenderers`;
-  `GlyphPreviewKit.frame(..., wave)`; the toy service reads `settings.wave`;
-  editor opens by tapping the hero preview, sliders styled like the SYS
-  appearance sliders (accent thumb/track, commit on release).
-- **Remove debug probes**: frame-stats `Log.i` + `lastProbe`/`SystemClock`
-  in `GlyphPreview.kt`; leftover `android.util.Log` import/usages in
-  `GlyphTab.kt`.
-- **Device-verify the RECORD_AUDIO banner**: `pm revoke` -> `LIVE AUDIO OFF`
-  card shows -> ALLOW -> AUDIO row back to `PLAYING · LIVE`.
-- **Device residue to clean**: `/sdcard/Music/ntop-test.wav`, test group
-  "lolili" (SMILEY / IN USE), DEFAULT MODE -> SMILEY, POWER WHILE CHARGING
-  -> ON, `settings put system screen_off_timeout 300000`; keep the MUSIC
-  group (Auxio -> WAVEFORM · PLAYING) as the demo.
-- Optional before shipping: bump 0.4.0 -> 0.4.1 / versionCode 5.
+- **None blocking.** The wave editor, square LEDs and the RECORD_AUDIO
+  banner flow are all device-verified (in-app ALLOW -> `granted=true`,
+  AUDIO row back to `PLAYING · LIVE`); test residue (wav, "lolili" group,
+  defaults, charging toggle, screen timeout) has been cleaned from the
+  demo phone.
+- **Physical Glyph matrix check** (only the user can do it): selecting a toy
+  needs the physical Glyph button. Confirm the WAVEFORM look and mirror mode
+  on the real LEDs.
+- The editor was left at BASS · CENTRE / 2.96x / 59% smoothing on the demo
+  device — reset in the editor if defaults are wanted.
 
 ## Conventions
 

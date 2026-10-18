@@ -131,8 +131,11 @@ object AudioCapture {
      * Bar heights in the renderer's 0..100 scale, or null when capture is not
      * available (the caller then keeps its synthetic fallback). A stale buffer
      * means playback stopped: the bars decay instead of freezing mid-song.
+     *
+     * [release] is the per-tick fall factor (higher = smoother), [gain] the
+     * user's sensitivity multiplier.
      */
-    fun bars(count: Int): IntArray? {
+    fun bars(count: Int, release: Float = RELEASE, gain: Float = 1f): IntArray? {
         if (!live) return null
         if (count <= 0) return IntArray(0)
         if (smoothed.size != count) smoothed = FloatArray(count)
@@ -140,9 +143,9 @@ object AudioCapture {
         val w = waveform
         if (w == null || SystemClock.elapsedRealtime() - waveformAt > STALE_MS) {
             for (i in 0 until count) {
-                smoothed[i] *= RELEASE
+                smoothed[i] *= release
                 if (smoothed[i] < 0.02f) smoothed[i] = 0f
-                out[i] = (smoothed[i] * 100f).toInt().coerceIn(0, 100)
+                out[i] = (smoothed[i] * 100f * gain).toInt().coerceIn(0, 100)
             }
             return out
         }
@@ -160,8 +163,8 @@ object AudioCapture {
             // sqrt lifts quiet passages so the matrix still shows shape at
             // low volume without letting loud parts clip at the rim.
             val level = sqrt(peak / 128f).coerceIn(0f, 1f)
-            smoothed[i] = maxOf(level, smoothed[i] * RELEASE)
-            out[i] = (smoothed[i] * 100f).toInt().coerceIn(0, 100)
+            smoothed[i] = maxOf(level, smoothed[i] * release)
+            out[i] = (smoothed[i] * 100f * gain).toInt().coerceIn(0, 100)
         }
         return out
     }

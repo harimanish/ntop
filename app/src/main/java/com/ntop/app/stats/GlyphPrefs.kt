@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -70,6 +71,13 @@ data class GlyphGroup(
     val trigger: GlyphTrigger = GlyphTrigger.IN_USE,
 )
 
+/** Look knobs for WAVEFORM, shared by the toy service and the tab preview. */
+data class GlyphWave(
+    val mirror: Boolean = false,
+    val sensitivity: Float = 1f,
+    val smoothing: Float = 0.72f,
+)
+
 /** Out-of-the-box fallback mode; the user can change it in the GLYPH tab. */
 val DEFAULT_GLYPH_MODE = GlyphMode.SMILEY
 
@@ -78,6 +86,7 @@ data class GlyphSettings(
     val chargingEnabled: Boolean = true,
     val defaultMode: GlyphMode = DEFAULT_GLYPH_MODE,
     val groups: List<GlyphGroup> = emptyList(),
+    val wave: GlyphWave = GlyphWave(),
 ) {
     fun usernameOr(fallback: String): String = username.trim().ifEmpty { fallback }
 }
@@ -108,6 +117,10 @@ private val KEY_CHARGING = booleanPreferencesKey("glyph_charging_enabled")
 private val KEY_DEFAULT_MODE = stringPreferencesKey("glyph_default_mode")
 private val KEY_GROUPS = stringPreferencesKey("glyph_groups")
 
+private val KEY_WAVE_MIRROR = booleanPreferencesKey("glyph_wave_mirror")
+private val KEY_WAVE_SENSITIVITY = floatPreferencesKey("glyph_wave_sensitivity")
+private val KEY_WAVE_SMOOTHING = floatPreferencesKey("glyph_wave_smoothing")
+
 /** Pre-groups per-app map ("pkg=MODE"); read once and migrated. */
 private val KEY_APP_MODES = stringSetPreferencesKey("glyph_app_modes")
 
@@ -121,6 +134,11 @@ fun glyphSettings(context: Context): Flow<GlyphSettings> = context.glyphStore.da
             // A present-but-empty KEY_GROUPS is an explicit empty list; absence
             // means the install predates groups and the old map gets migrated.
             groups = p[KEY_GROUPS]?.let(::decodeGroups) ?: legacyGroups(p[KEY_APP_MODES].orEmpty()),
+            wave = GlyphWave(
+                mirror = p[KEY_WAVE_MIRROR] ?: false,
+                sensitivity = p[KEY_WAVE_SENSITIVITY] ?: 1f,
+                smoothing = p[KEY_WAVE_SMOOTHING] ?: 0.72f,
+            ),
         )
     }
 
@@ -138,6 +156,14 @@ suspend fun setGlyphDefaultMode(context: Context, mode: GlyphMode) {
 
 suspend fun setGlyphGroups(context: Context, groups: List<GlyphGroup>) {
     context.glyphStore.edit { it[KEY_GROUPS] = encodeGroups(groups) }
+}
+
+suspend fun setGlyphWave(context: Context, wave: GlyphWave) {
+    context.glyphStore.edit {
+        it[KEY_WAVE_MIRROR] = wave.mirror
+        it[KEY_WAVE_SENSITIVITY] = wave.sensitivity
+        it[KEY_WAVE_SMOOTHING] = wave.smoothing
+    }
 }
 
 // ---------------------------------------------------------------------------
