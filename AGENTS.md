@@ -1,7 +1,7 @@
 # AGENTS.md — ntop contributor context
 
 `ntop` — btop-style system monitor for Nothing phones. Package
-`com.ntop.app`, version 0.5.0. Tabs: MON / PROC / BATT / SYS (Compose
+`com.ntop.app`, version 0.5.1. Tabs: MON / PROC / BATT / SYS (Compose
 `HorizontalPager` + `FluentBottomBar`, Nothing monochrome theme, Geist
 fonts, red accent only on charging pill/dot).
 
