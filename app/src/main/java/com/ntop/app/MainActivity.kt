@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,6 +94,7 @@ import com.ntop.app.ui.components.GlassTelemetryRow
 import com.ntop.app.ui.components.FluentBottomBar
 import com.ntop.app.ui.components.SpecGridCell
 import com.ntop.app.ui.components.MicroLabel
+import com.ntop.app.ui.components.NtopSplash
 import com.ntop.app.ui.components.resolveDeviceRender
 import com.ntop.app.stats.BLUR_MAX
 import com.ntop.app.stats.BLUR_MIN
@@ -354,11 +356,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             NtopTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = Color.Transparent,
-                ) {
-                    BatteryScreen()
+                // Launch animation: dots assemble the icon over the live UI.
+                // rememberSaveable keeps it to cold starts - a rotation does
+                // not replay it, process death does.
+                var showSplash by rememberSaveable { mutableStateOf(true) }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color.Transparent,
+                    ) {
+                        BatteryScreen()
+                    }
+                    if (showSplash) {
+                        NtopSplash(onFinished = { showSplash = false })
+                    }
                 }
             }
         }

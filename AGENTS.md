@@ -140,6 +140,15 @@ fonts, red accent only on charging pill/dot).
   `matrix / 2f - 0.5f` cells of the middle: with the old "centre inside the
   disc" rule the rim touched the outermost pixels, which the user flagged.
   `hardware = false` (group icons) draws lit cells only.
+- **The launch animation lives in the app, not in a splash theme.**
+  `Theme.Ntop` points `windowSplashScreenAnimatedIcon` at a transparent
+  colour so the system splash is only the black window, and `NtopSplash`
+  (`ui/components/Splash.kt`) draws the icon's own 14 dots (13 white + the
+  red marker) flying in on bowed quadratic paths from golden-angle
+  bearings — one master clock, seeded so every launch is identical. The
+  call site gates it with `rememberSaveable`, so only a cold start replays
+  it; the splash lattice is the app's graph texture. Keep the dot
+  coordinates in sync with `ic_launcher_foreground.xml`.
 - Group glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
   `foregroundApp()` returns null and IN USE matching is silently ignored —
   the GLYPH tab shows a banner and a deep link to the settings screen.
