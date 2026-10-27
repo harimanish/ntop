@@ -107,6 +107,9 @@ import com.ntop.app.stats.chipsetName
 import com.ntop.app.stats.chipsetVendor
 import com.ntop.app.stats.osVersionText
 import com.ntop.app.stats.screenSpec
+import com.ntop.app.stats.SplashIntro
+import com.ntop.app.stats.readSplashIntro
+import com.ntop.app.stats.setSplashIntro
 import com.ntop.app.stats.setAccent
 import com.ntop.app.stats.setBarAlpha
 import com.ntop.app.stats.setBlurDp
@@ -360,6 +363,10 @@ class MainActivity : ComponentActivity() {
                 // rememberSaveable keeps it to cold starts - a rotation does
                 // not replay it, process death does.
                 var showSplash by rememberSaveable { mutableStateOf(true) }
+                // The intro is a DataStore read; the splash waits the few ms it
+                // takes (behind the black window) instead of guessing wrong.
+                var launchIntro by remember { mutableStateOf<SplashIntro?>(null) }
+                LaunchedEffect(Unit) { launchIntro = readSplashIntro(this@MainActivity) }
                 Box(modifier = Modifier.fillMaxSize()) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -367,8 +374,11 @@ class MainActivity : ComponentActivity() {
                     ) {
                         BatteryScreen()
                     }
-                    if (showSplash) {
-                        NtopSplash(onFinished = { showSplash = false })
+                    if (showSplash && launchIntro != null) {
+                        NtopSplash(
+                            intro = launchIntro!!,
+                            onFinished = { showSplash = false },
+                        )
                     }
                 }
             }
@@ -1173,6 +1183,11 @@ private fun SysContent(
                 subtitle = screenSpec(context),
             )
         }
+        // Launch intro pills live with the appearance knobs; the splash reads
+        // the same store on cold start.
+        var splashChoice by remember { mutableStateOf<SplashIntro?>(null) }
+        LaunchedEffect(context) { splashChoice = readSplashIntro(context) }
+
         Spacer(Modifier.height(32.dp))
         MicroLabel("APPEARANCE")
         Spacer(Modifier.height(8.dp))
@@ -1218,6 +1233,42 @@ private fun SysContent(
             }
             Spacer(Modifier.height(4.dp))
             MicroLabel(AccentNames.getOrElse(theme.accentIdx) { "WHITE" }, color = Muted)
+            Spacer(Modifier.height(16.dp))
+            MicroLabel("LAUNCH ANIMATION", color = Muted)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    SplashIntro.BLACKHOLE to "BLACKHOLE",
+                    SplashIntro.SOLAR to "SOLAR",
+                    SplashIntro.FLY_IN to "FLY-IN",
+                ).forEach { (opt, label) ->
+                    val selected = splashChoice == opt
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (selected) accent.copy(alpha = 0.16f)
+                                else Color.White.copy(alpha = 0.05f),
+                            )
+                            .border(
+                                1.dp,
+                                if (selected) accent else Color.White.copy(alpha = 0.08f),
+                                RoundedCornerShape(10.dp),
+                            )
+                            .clickable(role = Role.Button) {
+                                splashChoice = opt
+                                scope.launch { setSplashIntro(context, opt) }
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        MicroLabel(label, color = if (selected) accent else Muted)
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            MicroLabel("PLAYS ON COLD START", color = Muted)
         }
         FooterClearance()
     }

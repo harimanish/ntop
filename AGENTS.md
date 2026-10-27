@@ -144,11 +144,21 @@ fonts, red accent only on charging pill/dot).
   `Theme.Ntop` points `windowSplashScreenAnimatedIcon` at a transparent
   colour so the system splash is only the black window, and `NtopSplash`
   (`ui/components/Splash.kt`) draws the icon's own 14 dots (13 white + the
-  red marker) flying in on bowed quadratic paths from golden-angle
-  bearings — one master clock, seeded so every launch is identical. The
-  call site gates it with `rememberSaveable`, so only a cold start replays
-  it; the splash lattice is the app's graph texture. Keep the dot
-  coordinates in sync with `ic_launcher_foreground.xml`.
+  red marker). Three intros are chosen in SYS > APPEARANCE > LAUNCH
+  ANIMATION and stored in the `ntop_launch` DataStore (default
+  **BLACKHOLE**): BLACKHOLE (2.45 s) spirals the dots into a void, implodes
+  the ring to a point and bursts the mark back out; SOLAR (2.45 s) ignites
+  the red dot as a sun, bursts the whites into three counter-clockwise
+  orbit bands, swirls them and collapses them into the logo slots, the sun
+  flying to the red corner last; FLY_IN (1.75 s, the original) flies them
+  in on bowed quadratic paths from golden-angle bearings. All end with the
+  app's graph lattice, the wide-tracked wordmark, one red pulse and a
+  dissolve into the UI that was loading. Each intro runs on one master
+  clock with its own `Timing` constants, started on the first **drawn**
+  frame (`withFrameNanos`) so a slow launch-window transition cannot eat
+  the opening; the call site gates with `rememberSaveable`, so only a cold
+  start replays it. Keep the dot coordinates in sync with
+  `ic_launcher_foreground.xml`.
 - Group glyphs need **Usage Access** (`PACKAGE_USAGE_STATS`) or
   `foregroundApp()` returns null and IN USE matching is silently ignored —
   the GLYPH tab shows a banner and a deep link to the settings screen.
